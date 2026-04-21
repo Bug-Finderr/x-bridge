@@ -85,7 +85,7 @@ Response shape per tweet: `id`, `text`, `created_at`, `user{id,name,screen_name}
 
 ## Self-healing
 
-This repo is actively maintained by an [OpenClaw](https://github.com/emergentbase/openclaw) agent that health-checks the endpoints on a schedule and patches parser/userscript drift when X changes response shapes. Expect the `main` branch to stay current.
+This repo is actively maintained by an OpenClaw agent instance that health-checks the endpoints on a schedule and patches parser/userscript drift when X changes response shapes. Expect the `main` branch to stay current.
 
 The same pattern works for anyone downstream: health-check `/search?q=test&count=1`, and on failure fetch a raw capture from `/debug/recent`, patch `service/bridge.py`, push. Consumers `git pull` + restart; the userscript updates via `@updateURL`. Library rot becomes a self-resolving problem.
 
