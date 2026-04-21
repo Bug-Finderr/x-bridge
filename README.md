@@ -37,7 +37,7 @@ X serves a nonce-based CSP that blocks inline script injection. x-bridge patches
 **Userscript:**
 
 1. Install [Tampermonkey](https://www.tampermonkey.net/) in Chrome.
-2. Tampermonkey Dashboard → Utilities → "Import from URL":
+2. Install the userscript via [Greasy Fork](https://greasyfork.org/en/scripts/574864-x-bridge-claw) or Tampermonkey Dashboard > Utilities > "Import from URL":
    `https://raw.githubusercontent.com/Bug-Finderr/x-bridge/main/x-bridge.user.js`
 3. Approve the `unsafeWindow` + `@connect 127.0.0.1` prompts on install.
 4. Open `https://x.com/home?bridge=1` in its own pinned Chrome window. Keep it open.
