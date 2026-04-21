@@ -590,10 +590,10 @@ python main.py">[ copy ]</span>
       if (el && v) el.textContent = v;
     };
     try {
-      const [repoRes, commitRes, relRes] = await Promise.all([
+      const [repoRes, commitRes, usRes] = await Promise.all([
         fetch("https://api.github.com/repos/Bug-Finderr/x-bridge"),
         fetch("https://api.github.com/repos/Bug-Finderr/x-bridge/commits?per_page=1"),
-        fetch("https://api.github.com/repos/Bug-Finderr/x-bridge/releases/latest"),
+        fetch("https://raw.githubusercontent.com/Bug-Finderr/x-bridge/main/x-bridge.user.js"),
       ]);
       if (repoRes.ok){
         const r = await repoRes.json();
@@ -604,11 +604,10 @@ python main.py">[ copy ]</span>
         const c = await commitRes.json();
         if (Array.isArray(c) && c[0]) set("commit", c[0].sha.slice(0,7));
       }
-      if (relRes.ok){
-        const rel = await relRes.json();
-        if (rel.tag_name) set("version", rel.tag_name.replace(/^v/, ""));
-      } else {
-        set("version", "unreleased");
+      if (usRes.ok){
+        const txt = await usRes.text();
+        const m = txt.match(/@version\s+(\S+)/);
+        if (m) set("version", m[1]);
       }
     } catch (e) {}
   })();
