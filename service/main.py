@@ -77,5 +77,15 @@ async def captured(req: CaptureBody):
     return await bridge.deliver_capture(req.op, req.url, req.body, req.jobid)
 
 
+class AbortBody(BaseModel):
+    jobid: str
+
+
+@app.post("/abort")
+async def abort(req: AbortBody):
+    """POSTed by the userscript when the watchdog expires."""
+    return await bridge.abort(req.jobid)
+
+
 if __name__ == "__main__":
     uvicorn.run(app, host="127.0.0.1", port=19816)

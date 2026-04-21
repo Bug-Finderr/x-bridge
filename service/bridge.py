@@ -71,6 +71,18 @@ def _prune_stale() -> None:
         _jobs.pop(jid, None)
 
 
+async def abort(jobid: str) -> dict:
+    """Cancel a pending job. Userscript calls this on watchdog expiry."""
+    async with _lock:
+        j = _jobs.pop(jobid, None)
+    if j and not j.event.is_set():
+        j.result = []
+        j.event.set()
+        log.info("aborted job %s", jobid)
+        return {"ok": True, "aborted": True}
+    return {"ok": True, "aborted": False}
+
+
 async def deliver_capture(op: str, url: str, body: str, jobid: Optional[str]) -> dict:
     """Userscript POSTs a captured payload. Parse + wake the waiter."""
     try:
