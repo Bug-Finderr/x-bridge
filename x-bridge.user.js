@@ -11,6 +11,7 @@
 // @connect      127.0.0.1
 // @updateURL    https://raw.githubusercontent.com/Bug-Finderr/x-bridge/main/x-bridge.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bug-Finderr/x-bridge/main/x-bridge.user.js
+// @license      Apache-2.0
 // ==/UserScript==
 
 (function () {
