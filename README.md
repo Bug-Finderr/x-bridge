@@ -93,6 +93,8 @@ The same pattern works for anyone downstream: health-check `/search?q=test&count
 
 Service binds to `127.0.0.1` only. The userscript's `@connect` restricts outbound traffic to loopback. No credentials leave your machine — your browser's existing session handles auth.
 
+If my Twitter account gets banned because of this tool, I will put a giant red banner on top of this README and take down the Greasy Fork listing. Use at your own risk.
+
 ## License
 
 Apache 2.0.
