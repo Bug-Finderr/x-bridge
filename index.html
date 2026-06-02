@@ -317,7 +317,7 @@
     <div class="row"><span class="k">commit</span><span class="v" data-meta="commit">&mdash;</span></div>
     <div class="row"><span class="k">updated</span><span class="v" data-meta="updated">&mdash;</span></div>
     <div class="row"><span class="k">runtime</span><span class="v">python 3.11+</span></div>
-    <div class="row"><span class="k">host</span><span class="v">127.0.0.1:8787</span></div>
+    <div class="row"><span class="k">host</span><span class="v">127.0.0.1:19816</span></div>
   </aside>
 
   <!-- WHY -->
@@ -357,7 +357,7 @@
       <div class="step">
         <div class="num"><b>02</b></div>
         <h3>The script intercepts GraphQL.</h3>
-        <p>Every response from x.com's own fetches is cloned in-place and posted to the bridge at <span class="fg">127.0.0.1:8787</span>.</p>
+        <p>Every response from x.com's own fetches is cloned in-place and posted to the bridge at <span class="fg">127.0.0.1:19816</span>.</p>
       </div>
       <div class="step">
         <div class="num"><b>03</b></div>
@@ -369,9 +369,9 @@
     <div class="code" style="grid-column:2 / 11">
       <div class="head">
         <span>$ terminal</span>
-        <span class="copy" data-copy="curl -s 'http://127.0.0.1:8787/search?q=postgres&count=20' | jq .">[ copy ]</span>
+        <span class="copy" data-copy="curl -s 'http://127.0.0.1:19816/search?q=postgres&count=20' | jq .">[ copy ]</span>
       </div>
-<pre><span class="c">$</span> curl -s <span class="s">'http://127.0.0.1:8787/search?q=postgres&count=20'</span> | jq .
+<pre><span class="c">$</span> curl -s <span class="s">'http://127.0.0.1:19816/search?q=postgres&count=20'</span> | jq .
 {
   <span class="s">"query"</span>: <span class="s">"postgres"</span>,
   <span class="s">"count"</span>: 20,
@@ -424,7 +424,7 @@ python main.py">[ copy ]</span>
 <span class="c">$</span> cd x-bridge/service
 <span class="c">$</span> pip install -r requirements.txt
 <span class="c">$</span> python main.py
-<span class="c"># bridge listening on 127.0.0.1:8787</span></pre>
+<span class="c"># bridge listening on 127.0.0.1:19816</span></pre>
       </div>
 
     </div>
@@ -484,7 +484,7 @@ python main.py">[ copy ]</span>
     <div class="maint">
       <h2 style="font-family:var(--mono-display);font-size:18px;font-weight:500;letter-spacing:-0.01em;margin-bottom:22px">Maintained by an agent</h2>
       <p>
-        This repo is autopatched by an <span class="agent">OpenClaw</span> agent when x.com drifts. Patch versions (0.3.x) are machine-authored; minor and major bumps stay human.
+        This repo can be autopatched by a <span class="agent">repair agent</span> when x.com drifts. Patch versions (0.3.x) are machine-authored; minor and major bumps stay human.
       </p>
     </div>
   </section>

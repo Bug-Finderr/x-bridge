@@ -54,7 +54,20 @@ pip install -r requirements.txt
 python main.py
 ```
 
-Server listens on `127.0.0.1:19816`. Swagger docs at `http://127.0.0.1:19816/docs`.
+Server listens on `127.0.0.1:19816` by default. Swagger docs at `http://127.0.0.1:19816/docs`.
+
+Optional env vars:
+
+| Name | Default | Purpose |
+|---|---|---|
+| `XBRIDGE_HOST` | `127.0.0.1` | Service bind host |
+| `XBRIDGE_PORT` | `19816` | Service port |
+| `XBRIDGE_CDP_BASE` | `http://127.0.0.1:18800` | Chrome DevTools endpoint |
+| `XBRIDGE_START_SCRIPT` | unset | Optional browser launcher used when the bridge tab is not open |
+| `XBRIDGE_BROWSER_PROFILE_DIR` | unset | Optional browser profile path for idle shutdown |
+| `XBRIDGE_EXTRA_PATH` | unset | Extra PATH prefix for launcher scripts |
+| `XBRIDGE_IDLE_SECONDS` | `600` | Idle seconds before closing the configured browser profile; `0` disables |
+| `XBRIDGE_USERSCRIPT_READY_SECONDS` | `15` | How recent a `/queries` poll must be to count the bridge tab as ready |
 
 ## Usage
 
@@ -85,7 +98,7 @@ Response shape per tweet: `id`, `text`, `created_at`, `user{id,name,screen_name}
 
 ## Self-healing
 
-This repo is actively maintained by an OpenClaw agent instance that health-checks the endpoints on a schedule and patches parser/userscript drift when X changes response shapes. Expect the `main` branch to stay current.
+This repo can be maintained by a repair agent that health-checks the endpoints on a schedule and patches parser/userscript drift when X changes response shapes.
 
 The same pattern works for anyone downstream: health-check `/search?q=test&count=1`, and on failure fetch a raw capture from `/debug/recent`, patch `service/bridge.py`, push. Consumers `git pull` + restart; the userscript updates via `@updateURL`. Library rot becomes a self-resolving problem.
 

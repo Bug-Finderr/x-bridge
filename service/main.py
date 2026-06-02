@@ -26,6 +26,8 @@ import uvicorn
 import bridge
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s %(message)s")
+XBRIDGE_HOST = os.environ.get("XBRIDGE_HOST", "127.0.0.1")
+XBRIDGE_PORT = int(os.environ.get("XBRIDGE_PORT", "19816"))
 XBRIDGE_JOB_TIMEOUT = float(os.environ.get("XBRIDGE_JOB_TIMEOUT", "120"))
 
 app = FastAPI(title="x-bridge reference service")
@@ -102,4 +104,4 @@ async def debug_bridge():
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="127.0.0.1", port=19816)
+    uvicorn.run(app, host=XBRIDGE_HOST, port=XBRIDGE_PORT)

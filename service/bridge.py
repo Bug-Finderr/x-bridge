@@ -28,18 +28,20 @@ from collections import deque
 _last_captures = deque(maxlen=20)
 
 CDP_BASE = os.environ.get("XBRIDGE_CDP_BASE", "http://127.0.0.1:18800").rstrip("/")
-START_BRIDGE_SCRIPT = Path(os.environ.get("XBRIDGE_START_SCRIPT", "/home/bug/start-bridge-tab.sh"))
-OPENCLAW_PROFILE_DIR = Path(os.environ.get(
-    "OPENCLAW_PROFILE_DIR",
-    str(Path.home() / ".openclaw/browser/openclaw/user-data"),
-))
+START_BRIDGE_SCRIPT = os.environ.get("XBRIDGE_START_SCRIPT")
+BROWSER_PROFILE_DIR = os.environ.get("XBRIDGE_BROWSER_PROFILE_DIR")
 IDLE_STOP_AFTER = int(os.environ.get("XBRIDGE_IDLE_SECONDS", "600"))
 IDLE_CHECK_INTERVAL = int(os.environ.get("XBRIDGE_IDLE_CHECK_SECONDS", "60"))
 WAKE_TIMEOUT = int(os.environ.get("XBRIDGE_WAKE_TIMEOUT", "240"))
 CDP_TIMEOUT = float(os.environ.get("XBRIDGE_CDP_TIMEOUT", "8"))
-MIN_BATTERY_FOR_BROWSER = int(os.environ.get("XBRIDGE_MIN_BATTERY_FOR_BROWSER", "5"))
 POLL_READY_TIMEOUT = float(os.environ.get("XBRIDGE_POLL_READY_TIMEOUT", "150"))
 ABORT_GRACE_SECONDS = float(os.environ.get("XBRIDGE_ABORT_GRACE_SECONDS", "20"))
+USERSCRIPT_READY_SECONDS = float(os.environ.get("XBRIDGE_USERSCRIPT_READY_SECONDS", "15"))
+EXTRA_PATH = os.environ.get("XBRIDGE_EXTRA_PATH", "")
+POWER_GUARD = os.environ.get("XBRIDGE_POWER_GUARD", "0") == "1"
+POWER_AC_DEVICE = os.environ.get("XBRIDGE_POWER_AC_DEVICE", "AC")
+POWER_BATTERY_DEVICE = os.environ.get("XBRIDGE_POWER_BATTERY_DEVICE", "BAT0")
+MIN_BATTERY_FOR_BROWSER = int(os.environ.get("XBRIDGE_MIN_BATTERY_FOR_BROWSER", "5"))
 
 _last_demand_at = time.time()
 _last_poll_at = 0.0
@@ -50,15 +52,15 @@ def recent_captures() -> list[dict]:
     return list(_last_captures)
 
 
-def _openclaw_env() -> dict[str, str]:
+def _subprocess_env() -> dict[str, str]:
     env = os.environ.copy()
-    node_bin = str(Path.home() / ".local/share/fnm/node-versions/v25.9.0/installation/bin")
-    env["PATH"] = f"{node_bin}:{env.get('PATH', '')}"
+    if EXTRA_PATH:
+        env["PATH"] = f"{EXTRA_PATH}:{env.get('PATH', '')}"
     return env
 
 
 def _profile_pgrep_pattern() -> str:
-    profile = str(OPENCLAW_PROFILE_DIR)
+    profile = BROWSER_PROFILE_DIR or ""
     return "[/]" + profile[1:] if profile.startswith("/") else profile
 
 
@@ -78,6 +80,10 @@ def _cdp_ready_sync() -> bool:
         return True
     except Exception:
         return False
+
+
+def _userscript_recently_polled() -> bool:
+    return _last_poll_at > 0 and time.time() - _last_poll_at <= USERSCRIPT_READY_SECONDS
 
 
 def _bridge_tab_open_sync() -> bool:
@@ -100,10 +106,13 @@ def _read_power_supply_value(device: str, key: str) -> str:
 
 
 def _critical_battery_without_ac_sync() -> tuple[bool, str]:
-    ac_online = _read_power_supply_value("ACAD", "online")
-    status = _read_power_supply_value("BAT1", "status")
-    capacity_raw = _read_power_supply_value("BAT1", "capacity")
-    present = _read_power_supply_value("BAT1", "present")
+    if not POWER_GUARD:
+        return False, "power guard disabled"
+
+    ac_online = _read_power_supply_value(POWER_AC_DEVICE, "online")
+    status = _read_power_supply_value(POWER_BATTERY_DEVICE, "status")
+    capacity_raw = _read_power_supply_value(POWER_BATTERY_DEVICE, "capacity")
+    present = _read_power_supply_value(POWER_BATTERY_DEVICE, "present")
     try:
         capacity = int(capacity_raw)
     except ValueError:
@@ -115,12 +124,18 @@ def _critical_battery_without_ac_sync() -> tuple[bool, str]:
         and status.lower() == "discharging"
         and capacity <= MIN_BATTERY_FOR_BROWSER
     )
-    detail = f"ACAD={ac_online or 'unknown'} BAT1={status or 'unknown'} capacity={capacity_raw or 'unknown'}"
+    detail = (
+        f"{POWER_AC_DEVICE}={ac_online or 'unknown'} "
+        f"{POWER_BATTERY_DEVICE}={status or 'unknown'} "
+        f"capacity={capacity_raw or 'unknown'}"
+    )
     return critical, detail
 
 
 def _browser_pids_sync() -> list[int]:
-    profile = str(OPENCLAW_PROFILE_DIR)
+    if not BROWSER_PROFILE_DIR:
+        return []
+    profile = BROWSER_PROFILE_DIR
     pids: list[int] = []
     for proc in Path("/proc").iterdir():
         if not proc.name.isdigit():
@@ -195,26 +210,39 @@ async def browser_running() -> bool:
 
 
 async def ensure_browser_ready(reason: str = "bridge request") -> None:
-    """Start or repair the dedicated OpenClaw browser before queuing a bridge job."""
+    """Start or repair the configured bridge browser before queuing a job."""
     _mark_demand()
-    if await bridge_tab_open():
+    if _userscript_recently_polled() or await bridge_tab_open():
         return
 
     async with _wake_lock:
-        if await bridge_tab_open():
+        if _userscript_recently_polled() or await bridge_tab_open():
             return
 
         critical_power, power_detail = await asyncio.to_thread(_critical_battery_without_ac_sync)
         if critical_power:
             raise RuntimeError(f"x-bridge browser launch blocked: critical power state ({power_detail})")
 
+        if not START_BRIDGE_SCRIPT:
+            poll_started_at = _last_poll_at
+            deadline = time.time() + POLL_READY_TIMEOUT
+            while time.time() < deadline:
+                if _last_poll_at > poll_started_at or _userscript_recently_polled():
+                    log.info("x-bridge userscript ready")
+                    return
+                await asyncio.sleep(1)
+            raise RuntimeError(
+                "x-bridge userscript is not polling. Open https://x.com/home?bridge=1 in a logged-in browser "
+                "with the userscript installed, or set XBRIDGE_START_SCRIPT to a launcher script."
+            )
+
         log.warning("x-bridge browser is not ready; starting it for %s", reason)
         poll_started_at = _last_poll_at
         proc = await asyncio.create_subprocess_exec(
-            str(START_BRIDGE_SCRIPT),
+            START_BRIDGE_SCRIPT,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
-            env=_openclaw_env(),
+            env=_subprocess_env(),
         )
         try:
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=WAKE_TIMEOUT)
@@ -284,7 +312,7 @@ async def idle_reaper() -> None:
             if has_other_tabs:
                 continue
 
-            log.info("x-bridge idle for %ss; stopping OpenClaw browser", int(time.time() - _last_demand_at))
+            log.info("x-bridge idle for %ss; stopping bridge browser", int(time.time() - _last_demand_at))
             await asyncio.to_thread(_stop_browser_sync)
         except asyncio.CancelledError:
             raise
