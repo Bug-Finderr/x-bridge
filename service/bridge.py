@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any, Optional
 from urllib.request import urlopen
 
-log = logging.getLogger("auto-tweet.bridge")
+log = logging.getLogger("xbridge.bridge")
 
 # Debug: keep last N raw captures for inspection
 from collections import deque
