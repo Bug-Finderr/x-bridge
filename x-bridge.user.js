@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         X Bridge
+// @name         X Bridge (claw)
 // @namespace    https://github.com/Bug-Finderr/x-bridge
-// @version      0.3.1
+// @version      0.3.2
 // @description  Ferries x.com GraphQL responses to a local service. Patches the page's real window.fetch + XMLHttpRequest via Tampermonkey unsafeWindow (CSP-safe).
 // @match        https://x.com/*
 // @run-at       document-start
@@ -24,8 +24,8 @@
 
   const params = new URLSearchParams(location.search);
   const bridgeOn = params.has('bridge');
-  if (bridgeOn) sessionStorage.setItem('x_bridge', '1');
-  const IS_BRIDGE = sessionStorage.getItem('x_bridge') === '1';
+  if (bridgeOn) sessionStorage.setItem('claw_bridge', '1');
+  const IS_BRIDGE = sessionStorage.getItem('claw_bridge') === '1';
   const JOBID = params.get('jobid') || null;
 
   const opFrom = (u) => {
