@@ -15,8 +15,10 @@ installed. Submit a query: curl 'http://127.0.0.1:19816/search?q=AI+agents'.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
+from contextlib import asynccontextmanager
 from typing import Optional
 
 from fastapi import FastAPI, Query
@@ -30,7 +32,21 @@ XBRIDGE_HOST = os.environ.get("XBRIDGE_HOST", "127.0.0.1")
 XBRIDGE_PORT = int(os.environ.get("XBRIDGE_PORT", "19816"))
 XBRIDGE_JOB_TIMEOUT = float(os.environ.get("XBRIDGE_JOB_TIMEOUT", "120"))
 
-app = FastAPI(title="x-bridge reference service")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    idle_task = asyncio.create_task(bridge.idle_reaper())
+    try:
+        yield
+    finally:
+        idle_task.cancel()
+        try:
+            await idle_task
+        except asyncio.CancelledError:
+            pass
+
+
+app = FastAPI(title="x-bridge reference service", lifespan=lifespan)
 
 
 @app.get("/health")
