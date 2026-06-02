@@ -16,6 +16,7 @@ installed. Submit a query: curl 'http://127.0.0.1:19816/search?q=AI+agents'.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Optional
 
 from fastapi import FastAPI, Query
@@ -25,6 +26,7 @@ import uvicorn
 import bridge
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s %(message)s")
+XBRIDGE_JOB_TIMEOUT = float(os.environ.get("XBRIDGE_JOB_TIMEOUT", "120"))
 
 app = FastAPI(title="x-bridge reference service")
 
@@ -40,19 +42,21 @@ async def search(
     type: str = Query("Top", description="Top or Latest"),
     count: int = Query(20, ge=1, le=50),
 ):
-    """Enqueue a search. Blocks until the bridge tab captures a response or 60s."""
+    """Enqueue a search. Blocks until the bridge tab captures a response or timeout."""
     if type not in ("Top", "Latest"):
         return {"error": "type must be Top or Latest"}
+    await bridge.ensure_browser_ready("search")
     job = await bridge.enqueue_search(q, type)
-    tweets = await bridge.wait_for(job, timeout=60.0)
+    tweets = await bridge.wait_for(job, timeout=XBRIDGE_JOB_TIMEOUT)
     return tweets[:count]
 
 
 @app.get("/replies/{tweet_id}")
 async def replies(tweet_id: str, count: int = Query(40, ge=1, le=100)):
     """Fetch a tweet plus its reply thread. Returns [main, reply1, reply2, ...]."""
+    await bridge.ensure_browser_ready("replies")
     job = await bridge.enqueue_tweet(tweet_id)
-    out = await bridge.wait_for(job, timeout=60.0)
+    out = await bridge.wait_for(job, timeout=XBRIDGE_JOB_TIMEOUT)
     return out[: count + 1]
 
 
@@ -85,6 +89,16 @@ class AbortBody(BaseModel):
 async def abort(req: AbortBody):
     """POSTed by the userscript when the watchdog expires."""
     return await bridge.abort(req.jobid)
+
+
+@app.get("/debug/recent")
+async def debug_recent():
+    return {"recent": bridge.recent_captures()}
+
+
+@app.get("/debug/bridge")
+async def debug_bridge():
+    return await bridge.bridge_status()
 
 
 if __name__ == "__main__":

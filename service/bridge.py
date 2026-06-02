@@ -12,12 +12,284 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+import signal
 import secrets
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Optional
+from urllib.request import urlopen
 
 log = logging.getLogger("auto-tweet.bridge")
+
+# Debug: keep last N raw captures for inspection
+from collections import deque
+_last_captures = deque(maxlen=20)
+
+CDP_BASE = os.environ.get("XBRIDGE_CDP_BASE", "http://127.0.0.1:18800").rstrip("/")
+START_BRIDGE_SCRIPT = Path(os.environ.get("XBRIDGE_START_SCRIPT", "/home/bug/start-bridge-tab.sh"))
+OPENCLAW_PROFILE_DIR = Path(os.environ.get(
+    "OPENCLAW_PROFILE_DIR",
+    str(Path.home() / ".openclaw/browser/openclaw/user-data"),
+))
+IDLE_STOP_AFTER = int(os.environ.get("XBRIDGE_IDLE_SECONDS", "600"))
+IDLE_CHECK_INTERVAL = int(os.environ.get("XBRIDGE_IDLE_CHECK_SECONDS", "60"))
+WAKE_TIMEOUT = int(os.environ.get("XBRIDGE_WAKE_TIMEOUT", "240"))
+CDP_TIMEOUT = float(os.environ.get("XBRIDGE_CDP_TIMEOUT", "8"))
+MIN_BATTERY_FOR_BROWSER = int(os.environ.get("XBRIDGE_MIN_BATTERY_FOR_BROWSER", "5"))
+POLL_READY_TIMEOUT = float(os.environ.get("XBRIDGE_POLL_READY_TIMEOUT", "150"))
+ABORT_GRACE_SECONDS = float(os.environ.get("XBRIDGE_ABORT_GRACE_SECONDS", "20"))
+
+_last_demand_at = time.time()
+_last_poll_at = 0.0
+_wake_lock = asyncio.Lock()
+
+
+def recent_captures() -> list[dict]:
+    return list(_last_captures)
+
+
+def _openclaw_env() -> dict[str, str]:
+    env = os.environ.copy()
+    node_bin = str(Path.home() / ".local/share/fnm/node-versions/v25.9.0/installation/bin")
+    env["PATH"] = f"{node_bin}:{env.get('PATH', '')}"
+    return env
+
+
+def _profile_pgrep_pattern() -> str:
+    profile = str(OPENCLAW_PROFILE_DIR)
+    return "[/]" + profile[1:] if profile.startswith("/") else profile
+
+
+def _mark_demand() -> None:
+    global _last_demand_at
+    _last_demand_at = time.time()
+
+
+def _cdp_fetch(path: str, timeout: float = CDP_TIMEOUT) -> str:
+    with urlopen(f"{CDP_BASE}{path}", timeout=timeout) as resp:
+        return resp.read(2_000_000).decode("utf-8", "replace")
+
+
+def _cdp_ready_sync() -> bool:
+    try:
+        _cdp_fetch("/json/version")
+        return True
+    except Exception:
+        return False
+
+
+def _bridge_tab_open_sync() -> bool:
+    try:
+        tabs = _cdp_fetch("/json/list")
+        return "https://x.com/" in tabs or "https://twitter.com/" in tabs
+    except Exception:
+        return False
+
+
+def _browser_running_sync() -> bool:
+    return bool(_browser_pids_sync())
+
+
+def _read_power_supply_value(device: str, key: str) -> str:
+    try:
+        return Path(f"/sys/class/power_supply/{device}/{key}").read_text("utf-8", "replace").strip()
+    except Exception:
+        return ""
+
+
+def _critical_battery_without_ac_sync() -> tuple[bool, str]:
+    ac_online = _read_power_supply_value("ACAD", "online")
+    status = _read_power_supply_value("BAT1", "status")
+    capacity_raw = _read_power_supply_value("BAT1", "capacity")
+    present = _read_power_supply_value("BAT1", "present")
+    try:
+        capacity = int(capacity_raw)
+    except ValueError:
+        capacity = 100
+
+    critical = (
+        ac_online == "0"
+        and present != "0"
+        and status.lower() == "discharging"
+        and capacity <= MIN_BATTERY_FOR_BROWSER
+    )
+    detail = f"ACAD={ac_online or 'unknown'} BAT1={status or 'unknown'} capacity={capacity_raw or 'unknown'}"
+    return critical, detail
+
+
+def _browser_pids_sync() -> list[int]:
+    profile = str(OPENCLAW_PROFILE_DIR)
+    pids: list[int] = []
+    for proc in Path("/proc").iterdir():
+        if not proc.name.isdigit():
+            continue
+        try:
+            raw_cmdline = (proc / "cmdline").read_bytes()
+            cmdline = raw_cmdline.replace(b"\0", b" ").decode("utf-8", "replace")
+        except Exception:
+            continue
+        if profile not in cmdline:
+            continue
+        try:
+            exe_name = Path(os.readlink(proc / "exe")).name.lower()
+        except Exception:
+            exe_name = ""
+        try:
+            comm = (proc / "comm").read_text("utf-8", "replace").strip().lower()
+        except Exception:
+            comm = ""
+        if "chrome" in exe_name or "chromium" in exe_name or "chrome" in comm or "chromium" in comm:
+            pids.append(int(proc.name))
+    return pids
+
+
+def _has_non_bridge_tabs_sync() -> bool:
+    try:
+        tabs = json.loads(_cdp_fetch("/json/list"))
+    except Exception:
+        return False
+    for tab in tabs:
+        url = tab.get("url") or ""
+        if not url or url == "about:blank":
+            continue
+        if url.startswith(("chrome://", "devtools://", "chrome-extension://")):
+            continue
+        if "chrome-devtools-frontend.appspot.com" in url:
+            continue
+        if "://x.com/" in url or "://twitter.com/" in url:
+            continue
+        return True
+    return False
+
+
+def _stop_browser_sync() -> None:
+    pids = _browser_pids_sync()
+    if not pids:
+        return
+
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        except Exception as exc:
+            log.warning("failed to terminate browser pid %s: %s", pid, exc)
+    time.sleep(3)
+    for pid in _browser_pids_sync():
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except Exception as exc:
+            log.warning("failed to kill browser pid %s: %s", pid, exc)
+
+
+async def bridge_tab_open() -> bool:
+    return await asyncio.to_thread(_bridge_tab_open_sync)
+
+
+async def browser_running() -> bool:
+    return await asyncio.to_thread(_browser_running_sync)
+
+
+async def ensure_browser_ready(reason: str = "bridge request") -> None:
+    """Start or repair the dedicated OpenClaw browser before queuing a bridge job."""
+    _mark_demand()
+    if await bridge_tab_open():
+        return
+
+    async with _wake_lock:
+        if await bridge_tab_open():
+            return
+
+        critical_power, power_detail = await asyncio.to_thread(_critical_battery_without_ac_sync)
+        if critical_power:
+            raise RuntimeError(f"x-bridge browser launch blocked: critical power state ({power_detail})")
+
+        log.warning("x-bridge browser is not ready; starting it for %s", reason)
+        poll_started_at = _last_poll_at
+        proc = await asyncio.create_subprocess_exec(
+            str(START_BRIDGE_SCRIPT),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            env=_openclaw_env(),
+        )
+        try:
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=WAKE_TIMEOUT)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            raise RuntimeError(f"x-bridge wake timed out after {WAKE_TIMEOUT}s")
+
+        output = stdout.decode("utf-8", "replace") if stdout else ""
+        if proc.returncode != 0:
+            tail = "\n".join(output.strip().splitlines()[-8:])
+            raise RuntimeError(f"x-bridge wake failed with exit {proc.returncode}: {tail}")
+
+        for _ in range(30):
+            if await bridge_tab_open():
+                break
+            await asyncio.sleep(2)
+        else:
+            tail = "\n".join(output.strip().splitlines()[-8:])
+            raise RuntimeError(f"x-bridge tab did not become visible in CDP: {tail}")
+
+        deadline = time.time() + POLL_READY_TIMEOUT
+        while time.time() < deadline:
+            if _last_poll_at > poll_started_at:
+                log.info("x-bridge browser ready")
+                return
+            await asyncio.sleep(1)
+
+        raise RuntimeError(f"x-bridge userscript did not poll /queries within {int(POLL_READY_TIMEOUT)}s")
+
+
+async def pending_count() -> int:
+    async with _lock:
+        _prune_stale()
+        return sum(1 for j in _jobs.values() if not j.event.is_set())
+
+
+async def bridge_status() -> dict:
+    now = time.time()
+    return {
+        "browser_running": await browser_running(),
+        "bridge_tab_open": await bridge_tab_open(),
+        "pending_jobs": await pending_count(),
+        "idle_seconds": int(now - _last_demand_at),
+        "idle_stop_after": IDLE_STOP_AFTER,
+        "userscript_last_poll_seconds": None if _last_poll_at <= 0 else int(now - _last_poll_at),
+    }
+
+
+async def idle_reaper() -> None:
+    """Stop the headed browser after bridge demand goes quiet."""
+    if IDLE_STOP_AFTER <= 0:
+        log.info("x-bridge idle reaper disabled")
+        return
+
+    while True:
+        await asyncio.sleep(IDLE_CHECK_INTERVAL)
+        try:
+            if await pending_count() > 0:
+                continue
+            if time.time() - _last_demand_at < IDLE_STOP_AFTER:
+                continue
+            if not await browser_running():
+                continue
+
+            has_other_tabs = await asyncio.to_thread(_has_non_bridge_tabs_sync)
+            if has_other_tabs:
+                continue
+
+            log.info("x-bridge idle for %ss; stopping OpenClaw browser", int(time.time() - _last_demand_at))
+            await asyncio.to_thread(_stop_browser_sync)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("x-bridge idle reaper error")
 
 
 @dataclass
@@ -42,6 +314,7 @@ STALE_AFTER = 300  # seconds
 
 
 async def enqueue_search(q: str, type: str) -> Job:
+    _mark_demand()
     j = Job(id="j_" + secrets.token_hex(6), kind="search", q=q, type=type)
     async with _lock:
         _jobs[j.id] = j
@@ -50,6 +323,7 @@ async def enqueue_search(q: str, type: str) -> Job:
 
 
 async def enqueue_tweet(tweet_id: str) -> Job:
+    _mark_demand()
     j = Job(id="j_" + secrets.token_hex(6), kind="tweet", tweet_id=tweet_id)
     async with _lock:
         _jobs[j.id] = j
@@ -59,6 +333,8 @@ async def enqueue_tweet(tweet_id: str) -> Job:
 
 async def pending_queue() -> list[dict]:
     """Return pending jobs for the userscript poller."""
+    global _last_poll_at
+    _last_poll_at = time.time()
     async with _lock:
         _prune_stale()
         return [j.to_queue_entry() for j in _jobs.values() if not j.event.is_set()]
@@ -72,15 +348,33 @@ def _prune_stale() -> None:
 
 
 async def abort(jobid: str) -> dict:
-    """Cancel a pending job. Userscript calls this on watchdog expiry."""
+    """Record a userscript watchdog and bound the late-capture wait.
+
+    X can deliver the GraphQL response after the userscript watchdog redirects
+    back home. Keep the job pending briefly for that late capture, then complete
+    empty so one bad X query cannot consume the full HTTP timeout.
+    """
     async with _lock:
-        j = _jobs.pop(jobid, None)
+        j = _jobs.get(jobid)
+    if j and not j.event.is_set():
+        log.info(
+            "userscript watchdog reported for job %s; keeping pending for %.0fs late-capture grace",
+            jobid,
+            ABORT_GRACE_SECONDS,
+        )
+        asyncio.create_task(_complete_after_abort_grace(jobid))
+        return {"ok": True, "aborted": False, "keptPending": True, "graceSeconds": ABORT_GRACE_SECONDS}
+    return {"ok": True, "aborted": False, "keptPending": False}
+
+
+async def _complete_after_abort_grace(jobid: str) -> None:
+    await asyncio.sleep(ABORT_GRACE_SECONDS)
+    async with _lock:
+        j = _jobs.get(jobid)
     if j and not j.event.is_set():
         j.result = []
         j.event.set()
-        log.info("aborted job %s", jobid)
-        return {"ok": True, "aborted": True}
-    return {"ok": True, "aborted": False}
+        log.warning("job %s completed empty after userscript watchdog grace", jobid)
 
 
 async def deliver_capture(op: str, url: str, body: str, jobid: Optional[str]) -> dict:
@@ -88,6 +382,11 @@ async def deliver_capture(op: str, url: str, body: str, jobid: Optional[str]) ->
     try:
         data = json.loads(body) if body else {}
     except Exception as e:
+        _last_captures.append({"op": op, "url": url, "jobid": jobid, "preview": (body or "")[:400], "error": str(e)})
+        return {"ok": False, "error": "invalid_json"}
+    _last_captures.append({"op": op, "url": url, "jobid": jobid, "body_len": len(body or "")})
+    _placeholder_noop = None
+    if False:
         log.warning("capture parse error for jobid=%s op=%s: %s", jobid, op, e)
         return {"ok": False, "error": "invalid_json"}
 
