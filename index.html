@@ -311,7 +311,6 @@
   </div>
 
   <aside class="meta" id="meta">
-    <div class="row"><span class="k">version</span><span class="v" data-meta="version">&mdash;</span></div>
     <div class="row"><span class="k">license</span><span class="v" data-meta="license">Apache-2.0</span></div>
     <div class="row"><span class="k">commit</span><span class="v" data-meta="commit">&mdash;</span></div>
     <div class="row"><span class="k">updated</span><span class="v" data-meta="updated">&mdash;</span></div>
@@ -606,11 +605,6 @@ python main.py">[ copy ]</span>
       if (commitRes.ok){
         const c = await commitRes.json();
         if (Array.isArray(c) && c[0]) set("commit", c[0].sha.slice(0,7));
-      }
-      if (usRes.ok){
-        const txt = await usRes.text();
-        const m = txt.match(/@version\s+(\S+)/);
-        if (m) set("version", m[1]);
       }
     } catch (e) {}
   })();

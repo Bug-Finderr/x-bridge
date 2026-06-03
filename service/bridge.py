@@ -38,7 +38,7 @@ WAKE_TIMEOUT = int(os.environ.get("XBRIDGE_WAKE_TIMEOUT", "240"))
 CDP_TIMEOUT = float(os.environ.get("XBRIDGE_CDP_TIMEOUT", "8"))
 POLL_READY_TIMEOUT = float(os.environ.get("XBRIDGE_POLL_READY_TIMEOUT", "150"))
 ABORT_GRACE_SECONDS = float(os.environ.get("XBRIDGE_ABORT_GRACE_SECONDS", "20"))
-USERSCRIPT_READY_SECONDS = float(os.environ.get("XBRIDGE_USERSCRIPT_READY_SECONDS", "15"))
+BRIDGE_READY_SECONDS = float(os.environ.get("XBRIDGE_BRIDGE_READY_SECONDS", "15"))
 EXTRA_PATH = os.environ.get("XBRIDGE_EXTRA_PATH", "")
 POWER_GUARD = os.environ.get("XBRIDGE_POWER_GUARD", "0") == "1"
 PAGE_BRIDGE_SCRIPT = r"""
@@ -207,8 +207,8 @@ def _cdp_ready_sync() -> bool:
         return False
 
 
-def _userscript_recently_polled() -> bool:
-    return _last_poll_at > 0 and time.time() - _last_poll_at <= USERSCRIPT_READY_SECONDS
+def _bridge_recently_polled() -> bool:
+    return _last_poll_at > 0 and time.time() - _last_poll_at <= BRIDGE_READY_SECONDS
 
 
 def _is_bridge_tab(tab: dict[str, Any]) -> bool:
@@ -382,7 +382,7 @@ async def browser_running() -> bool:
 async def _wait_for_poll_after(started_at: float, timeout: float) -> bool:
     deadline = time.time() + timeout
     while time.time() < deadline:
-        if _last_poll_at > started_at or _userscript_recently_polled():
+        if _last_poll_at > started_at or _bridge_recently_polled():
             return True
         await asyncio.sleep(1)
     return False
@@ -391,11 +391,11 @@ async def _wait_for_poll_after(started_at: float, timeout: float) -> bool:
 async def ensure_browser_ready(reason: str = "bridge request") -> None:
     """Start or repair the configured bridge browser before queuing a job."""
     _mark_demand()
-    if _userscript_recently_polled():
+    if _bridge_recently_polled():
         return
 
     async with _wake_lock:
-        if _userscript_recently_polled():
+        if _bridge_recently_polled():
             return
 
         critical_power, power_detail = await asyncio.to_thread(_critical_battery_without_ac_sync)
@@ -471,7 +471,6 @@ async def bridge_status() -> dict:
         "idle_seconds": int(now - _last_demand_at),
         "idle_stop_after": IDLE_STOP_AFTER,
         "bridge_last_poll_seconds": None if _last_poll_at <= 0 else int(now - _last_poll_at),
-        "userscript_last_poll_seconds": None if _last_poll_at <= 0 else int(now - _last_poll_at),
     }
 
 

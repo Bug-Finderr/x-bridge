@@ -7,7 +7,6 @@ Read-only X/Twitter search and replies through a logged-in Chrome tab.
 - Service: FastAPI on `127.0.0.1:19816`.
 - Browser: Chrome with CDP on `127.0.0.1:18800`.
 - Flow: API request -> wake Chrome -> open `x.com/home?bridge=1` -> CDP-inject bridge script -> capture X GraphQL -> parse tweets.
-- Tampermonkey/GreasyFork is not required for archbox runtime. `x-bridge.user.js` is legacy fallback only.
 
 ## Install
 
