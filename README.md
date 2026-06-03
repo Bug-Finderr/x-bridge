@@ -1,60 +1,47 @@
 # x-bridge
 
-Browser-assisted access to the `x.com` GraphQL API for scripts, agents, and automation.
+Browser-assisted access to X/Twitter search and replies for scripts, agents, and automation.
 
 ## Why this exists
 
-Unofficial X scraper libraries — [twikit](https://github.com/d60/twikit), [twscrape](https://github.com/vladkens/twscrape), [tweety-ns](https://github.com/mahrtayyab/tweety), and friends — all depend on generating the `x-client-transaction-id` header by parsing an obfuscated `ondemand.s.*.js` file shipped by X. Around March 2026 X changed how that file is named and served, and every downstream library broke at once ([XClientTransaction#35](https://github.com/iSarabjitDhiman/XClientTransaction/issues/35), [twikit#417](https://github.com/d60/twikit/issues/417)). Every library in this space is chasing the same moving target.
+Unofficial X scraper libraries break when X changes its authenticated GraphQL transaction/header machinery. x-bridge avoids reimplementing that moving target: a real logged-in Chrome tab performs the request, and the local service captures the response.
 
-Inside a real logged-in Chrome tab, X's own JavaScript generates valid transaction IDs on its own. x-bridge stops fighting the reimplementation problem. **The browser is the scraper; this service is just a queue and a parser.**
+The browser is the scraper. The service is a queue, a Chrome DevTools Protocol injector, and an X response parser.
 
 ## How it works
 
 ```
-  your agent / cron / script
-         │  (HTTP to localhost)
-         ▼
-  ┌──────────────────┐          ┌─────────────────────┐
-  │ bridge service   │◀────────▶│ x-bridge userscript │
-  │ FastAPI, :19816  │  jobs +  │ Chrome, logged in   │
-  │                  │ captures │ to x.com            │
-  └──────────────────┘          └─────────────────────┘
-                                          │
-                                  navigates + lets X's
-                                  own JS do the request
-                                          ▼
-                                      x.com
+your agent / cron / script
+       |
+       | HTTP localhost:19816
+       v
++------------------+        CDP        +----------------------+
+| bridge service   | <---------------> | logged-in Chrome tab |
+| FastAPI + parser |                  | x.com/home?bridge=1  |
++------------------+                  +----------------------+
+       ^                                      |
+       | captured GraphQL JSON                | X's own JS/auth
+       +--------------------------------------+
 ```
 
-Your agent submits `GET /search?q=...`. The userscript in your bridge tab polls the service, picks up the job, navigates the tab to `x.com/search?q=...`, and lets X render the page. A `fetch`/`XHR` interceptor grabs the raw `SearchTimeline` response and POSTs it back. The service parses and returns normalized tweets.
+`GET /search?q=...` wakes the dedicated Chrome profile if needed, opens `x.com/home?bridge=1`, injects the bridge script through CDP, navigates the page to the requested X search, captures the GraphQL response, parses it, and returns normalized tweets.
 
-Supported GraphQL ops out of the box: `SearchTimeline`, `UserTweets`, `UserTweetsAndReplies`, `HomeTimeline`, `HomeLatestTimeline`, `TweetDetail` (tweet + replies). Add more by editing `CAPTURE_OPS` in the userscript.
-
-X serves a nonce-based CSP that blocks inline script injection. x-bridge patches `window.fetch` / `XMLHttpRequest` via Tampermonkey's `unsafeWindow` handle — extension privileges bypass CSP cleanly.
+Supported X GraphQL ops: `SearchTimeline`, `UserTweets`, `UserTweetsAndReplies`, `HomeTimeline`, `HomeLatestTimeline`, `TweetDetail`.
 
 ## Install
-
-**Userscript:**
-
-1. Install [Tampermonkey](https://www.tampermonkey.net/) in Chrome.
-2. Install the userscript via [Greasy Fork](https://greasyfork.org/en/scripts/574864-x-bridge-claw) or Tampermonkey Dashboard > Utilities > "Import from URL":
-   `https://raw.githubusercontent.com/Bug-Finderr/x-bridge/main/x-bridge.user.js`
-3. Approve the `unsafeWindow` + `@connect 127.0.0.1` prompts on install.
-4. Open `https://x.com/home?bridge=1` in its own pinned Chrome window. Keep it open.
-
-Updates land automatically via `@updateURL`.
-
-**Reference service:**
 
 ```bash
 git clone https://github.com/Bug-Finderr/x-bridge
 cd x-bridge/service
-python -m venv .venv && source .venv/bin/activate
+python -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 python main.py
 ```
 
-Server listens on `127.0.0.1:19816` by default. Swagger docs at `http://127.0.0.1:19816/docs`.
+Run Chrome with remote debugging on `127.0.0.1:18800`, logged into X, or set `XBRIDGE_START_SCRIPT` so the service can launch the dedicated profile on demand.
+
+Archbox/OpenClaw uses `~/start-bridge-tab.sh` and does not require Tampermonkey or GreasyFork at runtime. `x-bridge.user.js` is kept only as a legacy/public fallback source.
 
 Optional env vars:
 
@@ -63,11 +50,11 @@ Optional env vars:
 | `XBRIDGE_HOST` | `127.0.0.1` | Service bind host |
 | `XBRIDGE_PORT` | `19816` | Service port |
 | `XBRIDGE_CDP_BASE` | `http://127.0.0.1:18800` | Chrome DevTools endpoint |
-| `XBRIDGE_START_SCRIPT` | unset | Optional browser launcher used when the bridge tab is not open |
-| `XBRIDGE_BROWSER_PROFILE_DIR` | unset | Optional browser profile path for idle shutdown |
+| `XBRIDGE_START_SCRIPT` | unset | Browser launcher used when Chrome is not ready |
+| `XBRIDGE_BROWSER_PROFILE_DIR` | unset | Browser profile path for idle shutdown |
 | `XBRIDGE_EXTRA_PATH` | unset | Extra PATH prefix for launcher scripts |
 | `XBRIDGE_IDLE_SECONDS` | `600` | Idle seconds before closing the configured browser profile; `0` disables |
-| `XBRIDGE_USERSCRIPT_READY_SECONDS` | `15` | How recent a `/queries` poll must be to count the bridge tab as ready |
+| `XBRIDGE_USERSCRIPT_READY_SECONDS` | `15` | Compatibility name for bridge poll freshness |
 
 ## Usage
 
@@ -81,32 +68,48 @@ Response shape per tweet: `id`, `text`, `created_at`, `user{id,name,screen_name}
 
 | Route | Purpose |
 |---|---|
-| `GET /search?q=&type=Top\|Latest&count=` | Enqueue a search, return tweets (up to 60s) |
-| `GET /replies/{id}?count=` | Fetch a tweet + replies |
-| `GET /queries` | Userscript polls this for pending jobs |
-| `POST /captured` | Userscript POSTs captured responses here |
-| `POST /abort` | Userscript cancels timed-out jobs |
-| `GET /debug/recent` | Last 20 captures for inspection |
+| `GET /search?q=&type=Top|Latest&count=` | Enqueue a search and return tweets |
+| `GET /replies/{id}?count=` | Fetch a tweet plus replies |
+| `GET /queries` | Bridge script polls this for pending jobs |
+| `POST /captured` | Bridge script posts captured responses here |
+| `POST /abort` | Bridge script cancels timed-out jobs |
+| `GET /debug/recent` | Recent raw captures for parser repair |
+| `GET /debug/bridge` | Browser, tab, queue, and poll freshness status |
+
+## Smoke Test
+
+A working bridge must return a real search result and a fresh bridge poll marker. `/health` alone is not enough.
+
+```bash
+curl 'http://127.0.0.1:19816/debug/bridge'
+curl 'http://127.0.0.1:19816/search?q=OpenClaw&type=Top&count=1'
+```
+
+On OpenClaw archbox, use:
+
+```bash
+/home/bug/.openclaw/workspace/scripts/xbridge-smoke.sh OpenClaw Top 1
+```
+
+## Generalization
+
+The CDP mechanism is not X-specific. Chrome can inject scripts into other pages and observe page network activity. The current service is X-specific because its job router, GraphQL op list, and parsers understand X response shapes. Supporting another SPA needs a site-specific module for navigation, capture filters, parsing, and safety rules.
 
 ## Caveats
 
-- Bridge tab must stay open and logged in. One tab, one Chrome window, minimized is fine.
-- Queries are serial, ~3–7s per query. Not a high-throughput API.
-- The bridge tab reloads itself between jobs, so use a dedicated window.
-- X rate limits apply at the account level.
-- When X changes response shapes, edit `parse_search` / `parse_tweet_detail` in `service/bridge.py`. Inspect raw captures via `GET /debug/recent`.
+- Requires a logged-in Chrome session for X.
+- Queries are serial and browser-speed, not high throughput.
+- X rate limits still apply to the logged-in account.
+- Parser drift is still possible when X changes response shapes.
+- The service is read-only by design. Do not add post/like/retweet/follow actions.
 
 ## Self-healing
 
-This repo is actively maintained by an OpenClaw agent instance that health-checks the endpoints on a schedule and patches parser/userscript drift when X changes response shapes. Expect the `main` branch to stay current.
-
-The same pattern works for anyone downstream: health-check `/search?q=test&count=1`, and on failure fetch a raw capture from `/debug/recent`, patch `service/bridge.py`, push. Consumers `git pull` + restart; the userscript updates via `@updateURL`. Library rot becomes a self-resolving problem.
+OpenClaw consumer crons run the smoke test before relying on X. If smoke fails, they fall back to web/HN sources and dispatch the x-bridge repair agent. Repair agents should patch `service/bridge.py` for runtime/CDP/parser issues, copy it to the live OpenClaw skill, restart x-bridge, run the smoke test, commit, and push.
 
 ## Security
 
-Service binds to `127.0.0.1` only. The userscript's `@connect` restricts outbound traffic to loopback. No credentials leave your machine — your browser's existing session handles auth.
-
-If my Twitter account gets banned because of this tool, I will put a giant red banner on top of this README and take down the Greasy Fork listing. Use at your own risk.
+Service binds to `127.0.0.1` by default. Chrome keeps auth cookies in the browser profile; x-bridge captures API responses locally and does not export credentials.
 
 ## License
 

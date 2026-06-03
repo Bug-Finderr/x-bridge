@@ -1,9 +1,9 @@
 """
 Bridge: job queue + X GraphQL response parsing.
 
-Real browser runs a userscript that intercepts x.com GraphQL responses and
-POSTs them here. Agents submit search/reply jobs; bridge tab picks them up,
-navigates, and pushes the captured JSON back. The library-side TID generation
+Real browser runs a CDP-injected script that intercepts x.com GraphQL responses
+and POSTs them here. Agents submit search/reply jobs; the bridge tab picks them
+up, navigates, and pushes the captured JSON back. The library-side TID generation
 that broke in twikit/twscrape/tweety is replaced by "let the real browser do it."
 """
 
@@ -470,6 +470,7 @@ async def bridge_status() -> dict:
         "pending_jobs": await pending_count(),
         "idle_seconds": int(now - _last_demand_at),
         "idle_stop_after": IDLE_STOP_AFTER,
+        "bridge_last_poll_seconds": None if _last_poll_at <= 0 else int(now - _last_poll_at),
         "userscript_last_poll_seconds": None if _last_poll_at <= 0 else int(now - _last_poll_at),
     }
 
@@ -542,7 +543,7 @@ async def enqueue_tweet(tweet_id: str) -> Job:
 
 
 async def pending_queue() -> list[dict]:
-    """Return pending jobs for the userscript poller."""
+    """Return pending jobs for the bridge poller."""
     global _last_poll_at
     _last_poll_at = time.time()
     async with _lock:
@@ -558,9 +559,9 @@ def _prune_stale() -> None:
 
 
 async def abort(jobid: str) -> dict:
-    """Record a userscript watchdog and bound the late-capture wait.
+    """Record a bridge watchdog and bound the late-capture wait.
 
-    X can deliver the GraphQL response after the userscript watchdog redirects
+    X can deliver the GraphQL response after the bridge watchdog redirects
     back home. Keep the job pending briefly for that late capture, then complete
     empty so one bad X query cannot consume the full HTTP timeout.
     """
@@ -568,7 +569,7 @@ async def abort(jobid: str) -> dict:
         j = _jobs.get(jobid)
     if j and not j.event.is_set():
         log.info(
-            "userscript watchdog reported for job %s; keeping pending for %.0fs late-capture grace",
+            "bridge watchdog reported for job %s; keeping pending for %.0fs late-capture grace",
             jobid,
             ABORT_GRACE_SECONDS,
         )
@@ -584,7 +585,7 @@ async def _complete_after_abort_grace(jobid: str) -> None:
     if j and not j.event.is_set():
         j.result = []
         j.event.set()
-        log.warning("job %s completed empty after userscript watchdog grace", jobid)
+        log.warning("job %s completed empty after bridge watchdog grace", jobid)
 
 
 async def deliver_capture(op: str, url: str, body: str, jobid: Optional[str]) -> dict:

@@ -5,7 +5,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>x-bridge</title>
-<meta name="description" content="Scrape x.com using your own browser. A Tampermonkey userscript captures X's own GraphQL responses and exposes them over localhost.">
+<meta name="description" content="Scrape x.com using your own browser. x-bridge injects a local bridge script through Chrome DevTools Protocol and exposes captured X GraphQL responses over localhost.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&family=Fragment+Mono&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
@@ -302,11 +302,10 @@
       <span class="line" data-d="2">browser.</span>
     </h1>
     <p class="hero-sub" id="hero-sub">
-      A Tampermonkey userscript captures X's own GraphQL responses in a logged-in tab and exposes them over localhost. <span class="muted">No headless browsers, no reverse-engineered auth, no API keys.</span>
+      A local service wakes a logged-in Chrome tab, injects a bridge script through CDP, captures X's own GraphQL responses, and exposes them over localhost. <span class="muted">No reverse-engineered auth, no API keys.</span>
     </p>
     <div class="hero-actions" id="hero-actions">
-      <a class="btn primary link-bracket" href="#install">[ install userscript ]</a>
-      <a class="btn link-bracket" href="https://greasyfork.org/en/scripts/574864-x-bridge-claw" target="_blank" rel="noopener">[ greasy fork ]</a>
+      <a class="btn primary link-bracket" href="#install">[ install service ]</a>
       <a class="btn link-bracket" href="https://github.com/Bug-Finderr/x-bridge#readme" target="_blank" rel="noopener">[ read the docs ]</a>
     </div>
   </div>
@@ -333,7 +332,7 @@
         The libraries aren't abandoned and the authors aren't at fault. The token-derivation pipeline they depended on no longer exists in the wire protocol. Reproducing it server-side means emulating a moving target.
       </p>
       <p>
-        x-bridge takes the other path. If the real browser already has the token, let the real browser do the request. A userscript listens to the fetches x.com is making anyway, forwards their responses to a local Python service, and exits the auth-replication arms race entirely.
+        x-bridge takes the other path. If the real browser already has the token, let the real browser do the request. A CDP-injected bridge script listens to the fetches x.com is making anyway, forwards their responses to a local Python service, and exits the auth-replication arms race entirely.
       </p>
     </div>
     <div class="pullquote">
@@ -352,17 +351,17 @@
       <div class="step">
         <div class="num"><b>01</b></div>
         <h3>You open a pinned tab.</h3>
-        <p>A Chrome tab logged into x.com, parked at <span class="fg">/home?bridge=1</span>. The userscript activates on that URL only.</p>
+        <p>A dedicated Chrome profile logs into x.com. The service opens <span class="fg">/home?bridge=1</span> only when needed.</p>
       </div>
       <div class="step">
         <div class="num"><b>02</b></div>
-        <h3>The script intercepts GraphQL.</h3>
-        <p>Every response from x.com's own fetches is cloned in-place and posted to the bridge at <span class="fg">127.0.0.1:19816</span>.</p>
+        <h3>CDP injects the bridge.</h3>
+        <p>The service installs fetch/XHR interceptors in the page through Chrome DevTools Protocol, then captures X GraphQL responses locally.</p>
       </div>
       <div class="step">
         <div class="num"><b>03</b></div>
         <h3>Python reads from localhost.</h3>
-        <p>When you hit <span class="fg">/search</span>, the bridge tells the tab to run a query and returns the captured JSON.</p>
+        <p>When you hit <span class="fg">/search</span>, the bridge navigates the tab, waits for X to fetch data, and returns parsed tweets.</p>
       </div>
     </div>
 
@@ -402,14 +401,14 @@
 
       <div class="code">
         <div class="head">
-          <span>$ tampermonkey</span>
-          <span class="copy" data-copy="https://raw.githubusercontent.com/Bug-Finderr/x-bridge/main/x-bridge.user.js">[ copy ]</span>
+          <span>$ service</span>
+          <span class="copy" data-copy="git clone https://github.com/Bug-Finderr/x-bridge">[ copy ]</span>
         </div>
-<pre><span class="c"># Option A: Install from Greasy Fork</span>
-<a href="https://greasyfork.org/en/scripts/574864-x-bridge-claw" target="_blank" rel="noopener" style="color:var(--fg);border-bottom:1px solid var(--dim)">https://greasyfork.org/en/scripts/574864-x-bridge-claw</a>
-
-<span class="c"># Option B: Tampermonkey > Utilities > Install from URL</span>
-https://raw.githubusercontent.com/Bug-Finderr/x-bridge/main/x-bridge.user.js</pre>
+<pre><span class="c">$</span> git clone https://github.com/Bug-Finderr/x-bridge
+<span class="c">$</span> cd x-bridge/service
+<span class="c">$</span> python -m venv .venv && source .venv/bin/activate
+<span class="c">$</span> pip install -r requirements.txt
+<span class="c">$</span> python main.py</pre>
       </div>
 
       <div class="code">
@@ -430,7 +429,7 @@ python main.py">[ copy ]</span>
     </div>
 
     <p class="install-note">
-      Requires one Chrome tab signed into x.com and pinned to <code>/home?bridge=1</code>. Close the tab and the bridge reports <span class="fg">tab_unavailable</span>; no background automation, no headless fallback.
+      Requires Chrome signed into x.com with remote debugging on <code>127.0.0.1:18800</code>. With <code>XBRIDGE_START_SCRIPT</code>, the service opens and closes the dedicated profile on demand.
     </p>
   </section>
 
@@ -463,7 +462,7 @@ python main.py">[ copy ]</span>
       <div class="api-row">
         <span class="method post">POST</span>
         <span class="path">/captured</span>
-        <span class="purpose">Internal. Userscript posts intercepted responses here.</span>
+        <span class="purpose">Internal. Bridge script posts intercepted responses here.</span>
       </div>
       <div class="api-row">
         <span class="method post">POST</span>
@@ -597,7 +596,7 @@ python main.py">[ copy ]</span>
       const [repoRes, commitRes, usRes] = await Promise.all([
         fetch("https://api.github.com/repos/Bug-Finderr/x-bridge"),
         fetch("https://api.github.com/repos/Bug-Finderr/x-bridge/commits?per_page=1"),
-        fetch("https://raw.githubusercontent.com/Bug-Finderr/x-bridge/main/x-bridge.user.js"),
+        fetch("git clone https://github.com/Bug-Finderr/x-bridge"),
       ]);
       if (repoRes.ok){
         const r = await repoRes.json();

@@ -1,16 +1,16 @@
 """
 x-bridge reference service.
 
-Minimal FastAPI server that pairs with the x-bridge userscript. Submit search /
-tweet-detail jobs over HTTP; the userscript drives your real Chrome tab to
-fetch them; this service collects the response and returns normalized tweets.
+Minimal FastAPI server that pairs with a CDP-injected x-bridge script. Submit
+search/tweet-detail jobs over HTTP; the bridge script drives your real Chrome
+tab to fetch them; this service collects the response and returns normalized
+tweets.
 
 Run:
     pip install -r requirements.txt
     python main.py
 
-Then open a Chrome window to https://x.com/home?bridge=1 with the userscript
-installed. Submit a query: curl 'http://127.0.0.1:19816/search?q=AI+agents'.
+Then open a Chrome window to https://x.com/home?bridge=1 with CDP enabled. Submit a query: curl 'http://127.0.0.1:19816/search?q=AI+agents'.
 """
 
 from __future__ import annotations
@@ -94,7 +94,7 @@ async def replies(tweet_id: str, count: int = Query(40, ge=1, le=100)):
 
 @app.get("/queries")
 async def queue():
-    """Polled by the userscript. Returns pending jobs."""
+    """Polled by the bridge script. Returns pending jobs."""
     q = await bridge.pending_queue()
     return {"queue": q}
 
@@ -109,7 +109,7 @@ class CaptureBody(BaseModel):
 
 @app.post("/captured")
 async def captured(req: CaptureBody):
-    """POSTed by the userscript with a captured GraphQL response."""
+    """POSTed by the bridge script with a captured GraphQL response."""
     return await bridge.deliver_capture(req.op, req.url, req.body, req.jobid)
 
 
@@ -119,7 +119,7 @@ class AbortBody(BaseModel):
 
 @app.post("/abort")
 async def abort(req: AbortBody):
-    """POSTed by the userscript when the watchdog expires."""
+    """POSTed by the bridge script when the watchdog expires."""
     return await bridge.abort(req.jobid)
 
 

@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         X Bridge (claw)
 // @namespace    https://github.com/Bug-Finderr/x-bridge
-// @version      0.3.4
-// @description  Ferries x.com GraphQL responses to a local service. Patches the page's real window.fetch + XMLHttpRequest via Tampermonkey unsafeWindow (CSP-safe).
+// @version      0.3.5
+// @description  Legacy fallback for x-bridge. Archbox runtime now injects the bridge script through Chrome DevTools Protocol.
 // @match        https://x.com/*
 // @run-at       document-start
 // @grant        GM_xmlhttpRequest
@@ -68,8 +68,7 @@
     });
   };
 
-  // Patch the PAGE's real fetch/XHR via unsafeWindow. Tampermonkey extension
-  // privilege bypasses X's CSP (inline <script> injection is nonce-blocked).
+  // Legacy fallback: patch the PAGE's real fetch/XHR via Tampermonkey unsafeWindow.
   try {
     const W = unsafeWindow;
     const origFetch = W.fetch.bind(W);
