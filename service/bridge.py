@@ -19,7 +19,9 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import urlparse
 from urllib.request import urlopen
+from websockets.sync.client import connect as ws_connect
 
 log = logging.getLogger("xbridge.bridge")
 
@@ -39,6 +41,129 @@ ABORT_GRACE_SECONDS = float(os.environ.get("XBRIDGE_ABORT_GRACE_SECONDS", "20"))
 USERSCRIPT_READY_SECONDS = float(os.environ.get("XBRIDGE_USERSCRIPT_READY_SECONDS", "15"))
 EXTRA_PATH = os.environ.get("XBRIDGE_EXTRA_PATH", "")
 POWER_GUARD = os.environ.get("XBRIDGE_POWER_GUARD", "0") == "1"
+PAGE_BRIDGE_SCRIPT = r"""
+(() => {
+  'use strict';
+  if (window.__xBridgeInstalled) return;
+  window.__xBridgeInstalled = true;
+
+  const LOCAL = 'http://127.0.0.1:19816';
+  const CAPTURE_OPS = ['SearchTimeline', 'UserTweets', 'UserTweetsAndReplies', 'HomeTimeline', 'HomeLatestTimeline', 'TweetDetail'];
+  const POLL_MS = 5000;
+  const WATCHDOG_MS = 75000;
+
+  const params = new URLSearchParams(location.search);
+  const bridgeOn = params.has('bridge');
+  if (bridgeOn) sessionStorage.setItem('claw_bridge', '1');
+  const IS_BRIDGE = sessionStorage.getItem('claw_bridge') === '1';
+  const JOBID = params.get('jobid') || null;
+
+  const opFrom = (u) => {
+    const m = String(u).match(/\/i\/api\/graphql\/[^/]+\/([A-Za-z0-9_]+)/);
+    return m ? m[1] : null;
+  };
+
+  const apiPost = (path, body) => fetch(LOCAL + path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }).catch(() => null);
+
+  const apiGet = async (path) => {
+    try {
+      const r = await fetch(LOCAL + path);
+      return await r.json();
+    } catch (_) {
+      return null;
+    }
+  };
+
+  const emit = (op, url, body) => {
+    console.log('[x-bridge] capture', op, (body || '').length, 'bytes');
+    apiPost('/captured', { op, url, body, jobid: JOBID, captured_at: new Date().toISOString() });
+  };
+
+  try {
+    const origFetch = window.fetch.bind(window);
+    window.fetch = function (input, init) {
+      const url = typeof input === 'string' ? input : (input && input.url) || '';
+      const op = opFrom(url);
+      const p = origFetch(input, init);
+      if (op && CAPTURE_OPS.includes(op)) {
+        p.then((resp) => {
+          try { resp.clone().text().then((t) => emit(op, url, t)).catch(() => {}); } catch (_) {}
+        }).catch(() => {});
+      }
+      return p;
+    };
+
+    const OrigXHR = window.XMLHttpRequest;
+    function PatchedXHR() {
+      const xhr = new OrigXHR();
+      let xhrUrl = '';
+      const origOpen = xhr.open;
+      xhr.open = function (m, u) { xhrUrl = u; return origOpen.apply(xhr, arguments); };
+      xhr.addEventListener('load', function () {
+        const op = opFrom(xhrUrl);
+        if (op && CAPTURE_OPS.includes(op)) {
+          try { emit(op, xhrUrl, xhr.responseText); } catch (_) {}
+        }
+      });
+      return xhr;
+    }
+    PatchedXHR.prototype = OrigXHR.prototype;
+    window.XMLHttpRequest = PatchedXHR;
+    console.log('[x-bridge] CDP interceptors installed');
+  } catch (e) {
+    console.error('[x-bridge] failed to install CDP bridge:', e);
+  }
+
+  if (!IS_BRIDGE) return;
+  console.log('[x-bridge] bridge mode, jobid=', JOBID);
+
+  if (JOBID) {
+    let finished = false;
+    const watchdog = setTimeout(() => {
+      if (finished) return;
+      console.log('[x-bridge] watchdog fired, aborting + home');
+      apiPost('/abort', { jobid: JOBID }).finally(() => { location.href = '/home?bridge=1'; });
+    }, WATCHDOG_MS);
+    const poll = setInterval(async () => {
+      const j = await apiGet('/queries');
+      if (!j) return;
+      const stillPending = Array.isArray(j.queue) && j.queue.some((q) => q.id === JOBID);
+      if (!stillPending) {
+        finished = true;
+        clearInterval(poll);
+        clearTimeout(watchdog);
+        console.log('[x-bridge] job done, home');
+        setTimeout(() => { location.href = '/home?bridge=1'; }, 300);
+      }
+    }, 2000);
+  } else {
+    setTimeout(function tick() {
+      apiGet('/queries').then((j) => {
+        if (j && Array.isArray(j.queue) && j.queue.length) {
+          const job = j.queue[0];
+          let target;
+          if (job.kind === 'search') {
+            const f = job.type === 'Latest' ? 'live' : 'top';
+            target = `/search?q=${encodeURIComponent(job.q)}&src=typed_query&f=${f}&bridge=1&jobid=${encodeURIComponent(job.id)}`;
+          } else if (job.kind === 'tweet') {
+            target = `/i/status/${encodeURIComponent(job.tweet_id)}?bridge=1&jobid=${encodeURIComponent(job.id)}`;
+          } else {
+            setTimeout(tick, POLL_MS); return;
+          }
+          console.log('[x-bridge] picking job', job.id, target);
+          location.href = target;
+          return;
+        }
+        setTimeout(tick, POLL_MS);
+      });
+    }, 1500);
+  }
+})();
+"""
 POWER_AC_DEVICE = os.environ.get("XBRIDGE_POWER_AC_DEVICE", "AC")
 POWER_BATTERY_DEVICE = os.environ.get("XBRIDGE_POWER_BATTERY_DEVICE", "BAT0")
 MIN_BATTERY_FOR_BROWSER = int(os.environ.get("XBRIDGE_MIN_BATTERY_FOR_BROWSER", "5"))
@@ -86,12 +211,53 @@ def _userscript_recently_polled() -> bool:
     return _last_poll_at > 0 and time.time() - _last_poll_at <= USERSCRIPT_READY_SECONDS
 
 
-def _bridge_tab_open_sync() -> bool:
+def _is_bridge_tab(tab: dict[str, Any]) -> bool:
+    if tab.get("type") != "page":
+        return False
+    url = tab.get("url") or ""
     try:
-        tabs = _cdp_fetch("/json/list")
-        return "https://x.com/" in tabs or "https://twitter.com/" in tabs
+        host = urlparse(url).hostname or ""
     except Exception:
         return False
+    return host in {"x.com", "twitter.com"}
+
+
+def _bridge_tabs_sync() -> list[dict[str, Any]]:
+    try:
+        tabs = json.loads(_cdp_fetch("/json/list"))
+    except Exception:
+        return []
+    return [tab for tab in tabs if _is_bridge_tab(tab)]
+
+
+def _bridge_tab_open_sync() -> bool:
+    return bool(_bridge_tabs_sync())
+
+
+def _cdp_command(ws, command_id: int, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    ws.send(json.dumps({"id": command_id, "method": method, "params": params or {}}))
+    while True:
+        msg = json.loads(ws.recv(timeout=CDP_TIMEOUT))
+        if msg.get("id") == command_id:
+            return msg
+
+
+def _inject_bridge_script_sync() -> bool:
+    injected = False
+    for tab in _bridge_tabs_sync():
+        ws_url = tab.get("webSocketDebuggerUrl")
+        if not ws_url:
+            continue
+        try:
+            with ws_connect(ws_url, open_timeout=CDP_TIMEOUT, close_timeout=CDP_TIMEOUT) as ws:
+                _cdp_command(ws, 1, "Page.enable")
+                _cdp_command(ws, 2, "Runtime.enable")
+                _cdp_command(ws, 3, "Page.addScriptToEvaluateOnNewDocument", {"source": PAGE_BRIDGE_SCRIPT})
+                _cdp_command(ws, 4, "Runtime.evaluate", {"expression": PAGE_BRIDGE_SCRIPT, "awaitPromise": False})
+                injected = True
+        except Exception as exc:
+            log.warning("failed to inject x-bridge script into %s: %s", tab.get("url"), exc)
+    return injected
 
 
 def _browser_running_sync() -> bool:
@@ -173,7 +339,7 @@ def _has_non_bridge_tabs_sync() -> bool:
             continue
         if "chrome-devtools-frontend.appspot.com" in url:
             continue
-        if "://x.com/" in url or "://twitter.com/" in url:
+        if _is_bridge_tab(tab):
             continue
         return True
     return False
@@ -209,31 +375,45 @@ async def browser_running() -> bool:
     return await asyncio.to_thread(_browser_running_sync)
 
 
+async def _wait_for_poll_after(started_at: float, timeout: float) -> bool:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if _last_poll_at > started_at or _userscript_recently_polled():
+            return True
+        await asyncio.sleep(1)
+    return False
+
+
 async def ensure_browser_ready(reason: str = "bridge request") -> None:
     """Start or repair the configured bridge browser before queuing a job."""
     _mark_demand()
-    if _userscript_recently_polled() or await bridge_tab_open():
+    if _userscript_recently_polled():
         return
 
     async with _wake_lock:
-        if _userscript_recently_polled() or await bridge_tab_open():
+        if _userscript_recently_polled():
             return
 
         critical_power, power_detail = await asyncio.to_thread(_critical_battery_without_ac_sync)
         if critical_power:
             raise RuntimeError(f"x-bridge browser launch blocked: critical power state ({power_detail})")
 
+        if await bridge_tab_open():
+            poll_started_at = _last_poll_at
+            await asyncio.to_thread(_inject_bridge_script_sync)
+            if await _wait_for_poll_after(poll_started_at, min(POLL_READY_TIMEOUT, 30)):
+                log.info("x-bridge browser ready")
+                return
+
         if not START_BRIDGE_SCRIPT:
             poll_started_at = _last_poll_at
-            deadline = time.time() + POLL_READY_TIMEOUT
-            while time.time() < deadline:
-                if _last_poll_at > poll_started_at or _userscript_recently_polled():
-                    log.info("x-bridge userscript ready")
-                    return
-                await asyncio.sleep(1)
+            await asyncio.to_thread(_inject_bridge_script_sync)
+            if await _wait_for_poll_after(poll_started_at, POLL_READY_TIMEOUT):
+                log.info("x-bridge browser ready")
+                return
             raise RuntimeError(
-                "x-bridge userscript is not polling. Open https://x.com/home?bridge=1 in a logged-in browser "
-                "with the userscript installed, or set XBRIDGE_START_SCRIPT to a launcher script."
+                "x-bridge page is not polling /queries. Open https://x.com/home?bridge=1 in a logged-in browser "
+                "or set XBRIDGE_START_SCRIPT to a launcher script."
             )
 
         log.warning("x-bridge browser is not ready; starting it for %s", reason)
@@ -264,14 +444,12 @@ async def ensure_browser_ready(reason: str = "bridge request") -> None:
             tail = "\n".join(output.strip().splitlines()[-8:])
             raise RuntimeError(f"x-bridge tab did not become visible in CDP: {tail}")
 
-        deadline = time.time() + POLL_READY_TIMEOUT
-        while time.time() < deadline:
-            if _last_poll_at > poll_started_at:
-                log.info("x-bridge browser ready")
-                return
-            await asyncio.sleep(1)
+        await asyncio.to_thread(_inject_bridge_script_sync)
+        if await _wait_for_poll_after(poll_started_at, POLL_READY_TIMEOUT):
+            log.info("x-bridge browser ready")
+            return
 
-        raise RuntimeError(f"x-bridge userscript did not poll /queries within {int(POLL_READY_TIMEOUT)}s")
+        raise RuntimeError(f"x-bridge page did not poll /queries within {int(POLL_READY_TIMEOUT)}s")
 
 
 async def pending_count() -> int:

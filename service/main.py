@@ -21,7 +21,7 @@ import os
 from contextlib import asynccontextmanager
 from typing import Optional
 
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, Request, Response
 from pydantic import BaseModel
 import uvicorn
 
@@ -47,6 +47,20 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="x-bridge reference service", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def cors_for_x_bridge(request: Request, call_next):
+    if request.method == "OPTIONS":
+        response = Response()
+    else:
+        response = await call_next(request)
+    origin = request.headers.get("origin")
+    if origin in {"https://x.com", "https://twitter.com"}:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    return response
 
 
 @app.get("/health")
