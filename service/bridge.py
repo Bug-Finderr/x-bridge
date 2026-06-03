@@ -332,12 +332,16 @@ def _has_non_bridge_tabs_sync() -> bool:
     except Exception:
         return False
     for tab in tabs:
+        if tab.get("type") != "page":
+            continue
         url = tab.get("url") or ""
         if not url or url == "about:blank":
             continue
         if url.startswith(("chrome://", "devtools://", "chrome-extension://")):
             continue
         if "chrome-devtools-frontend.appspot.com" in url:
+            continue
+        if (urlparse(url).hostname or "") == "www.tampermonkey.net":
             continue
         if _is_bridge_tab(tab):
             continue

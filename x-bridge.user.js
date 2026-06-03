@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         X Bridge (claw)
 // @namespace    https://github.com/Bug-Finderr/x-bridge
-// @version      0.3.3
+// @version      0.3.4
 // @description  Ferries x.com GraphQL responses to a local service. Patches the page's real window.fetch + XMLHttpRequest via Tampermonkey unsafeWindow (CSP-safe).
 // @match        https://x.com/*
 // @run-at       document-start
