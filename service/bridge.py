@@ -412,7 +412,7 @@ async def deliver_capture(op: str, url: str, body: str, jobid: Optional[str]) ->
     except Exception as e:
         _last_captures.append({"op": op, "url": url, "jobid": jobid, "preview": (body or "")[:400], "error": str(e)})
         return {"ok": False, "error": "invalid_json"}
-    _last_captures.append({"op": op, "url": url, "jobid": jobid, "body_len": len(body or "")})
+    _last_captures.append({"op": op, "url": url, "jobid": jobid, "body_len": len(body or ""), "body": body or ""})
     _placeholder_noop = None
     if False:
         log.warning("capture parse error for jobid=%s op=%s: %s", jobid, op, e)
