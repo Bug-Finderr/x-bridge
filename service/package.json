@@ -1,0 +1,9 @@
+{
+  "name": "x-bridge-service",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node main.ts",
+    "check": "node --check main.ts && node --check bridge.ts"
+  }
+}
