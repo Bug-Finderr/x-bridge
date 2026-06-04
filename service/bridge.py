@@ -588,7 +588,7 @@ async def _complete_after_abort_grace(jobid: str) -> None:
 
 
 async def deliver_capture(op: str, url: str, body: str, jobid: Optional[str]) -> dict:
-    """Userscript POSTs a captured payload. Parse + wake the waiter."""
+    """Bridge script POSTs a captured payload. Parse + wake the waiter."""
     try:
         data = json.loads(body) if body else {}
     except Exception as e:

@@ -5,7 +5,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>x-bridge</title>
-<meta name="description" content="Scrape x.com using your own browser. x-bridge injects a local bridge script through Chrome DevTools Protocol and exposes captured X GraphQL responses over localhost.">
+<meta name="description" content="Browser-backed X data capture over localhost. No reverse-engineered auth, no API keys.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&family=Fragment+Mono&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
@@ -76,13 +76,16 @@
   .rail .label[data-active="1"]{color:var(--fg)}
   @media (max-width:768px){ .rail{display:none} }
 
-  /* 12-col grid */
+  /* Layout */
   .page{
-    max-width:1280px;margin:0 auto;padding:0 64px;
-    display:grid;grid-template-columns:repeat(12,1fr);gap:24px;
+    max-width:1280px;margin:0 auto;padding:0 48px;
+    display:grid;grid-template-columns:minmax(0,720px) 300px;column-gap:48px;
     position:relative;z-index:2;
   }
-  @media (max-width:768px){ .page{padding:0 20px;gap:16px} }
+  .page > *, section > *{min-width:0}
+  @media (max-width:768px){
+    .page{display:block;padding:0 20px}
+  }
 
   /* Top bar */
   .topbar{
@@ -107,7 +110,7 @@
 
   /* Hero */
   .hero{
-    grid-column:2 / 9;
+    grid-column:1;
     padding-top:120px;padding-bottom:140px;
     position:relative;
   }
@@ -127,7 +130,7 @@
     color:var(--fg);
     max-width:12ch;
   }
-  h1.hero-h .line{display:block;opacity:0;transform:translateY(4px);transition:opacity 360ms ease, transform 360ms ease}
+  h1.hero-h .line{display:block;white-space:nowrap;opacity:0;transform:translateY(4px);transition:opacity 360ms ease, transform 360ms ease}
   .hero-sub{
     margin-top:28px;max-width:52ch;color:var(--fg);font-size:15px;line-height:1.6;
     opacity:0;transform:translateY(4px);transition:opacity 360ms ease, transform 360ms ease;
@@ -147,12 +150,19 @@
 
   /* hero meta block */
   .meta{
-    grid-column:10 / 13;
-    padding-top:148px;
+    grid-column:2;
+    padding-top:252px;
     font-family:var(--mono-display);font-size:11px;color:var(--dim);
     line-height:1.9;letter-spacing:0.01em;
     opacity:0;transition:opacity 600ms ease;
   }
+  .sample{border-left:1px solid var(--hair);padding-left:18px;margin-bottom:26px}
+  .sample .top{display:flex;justify-content:space-between;color:var(--fg);margin-bottom:12px}
+  .sample .top span:last-child{color:var(--amber)}
+  .sample pre{font-family:var(--mono-display);font-size:11px;line-height:1.8;color:var(--dim);white-space:pre-wrap}
+  .sample b{color:var(--fg);font-weight:500}
+  .sample .out{color:var(--amber)}
+  .meta-grid{border-top:1px solid var(--hair)}
   .meta .row{display:flex;justify-content:space-between;gap:16px;border-bottom:1px dashed var(--hair);padding:4px 0}
   .meta .row:last-child{border-bottom:0}
   .meta .k{color:var(--dim)}
@@ -163,37 +173,45 @@
     h1.hero-h{font-size:42px;max-width:none}
   }
 
-  /* section scaffolding */
-  section{grid-column:1/-1;display:grid;grid-template-columns:repeat(12,1fr);gap:24px;padding:80px 0;border-top:1px solid var(--hair);position:relative}
-  @media (max-width:768px){ section{padding:56px 0;gap:16px} }
+  /* Sections */
+  section{grid-column:1/-1;display:grid;grid-template-columns:90px minmax(0,1fr);column-gap:40px;padding:80px 0;border-top:1px solid var(--hair);position:relative}
   .section-label{
-    grid-column:1 / 2;
+    grid-column:1;
     font-family:var(--mono-display);font-size:10px;letter-spacing:0.15em;
     color:var(--dim);text-transform:uppercase;padding-top:4px;
   }
+  .section-head{grid-column:2}
+  .section-title{
+    font-family:var(--mono-display);font-size:18px;font-weight:500;
+    letter-spacing:-0.01em;margin-bottom:28px;
+  }
+  #how .section-title{margin-bottom:40px}
   @media (max-width:900px){
-    .section-label{grid-column:1/-1;padding-bottom:12px}
+    section{display:block;padding:64px 0}
+    .section-label{padding-bottom:12px}
+  }
+  @media (max-width:420px){
+    h1.hero-h{font-size:38px}
   }
 
   /* Why */
-  .why-body{grid-column:2 / 8;max-width:520px}
+  .why-body{grid-column:2;max-width:650px}
   .why-body p{margin-bottom:18px;color:var(--fg);font-size:14px;line-height:1.7}
   .why-body p:last-child{margin-bottom:0}
   .why-body a{border-bottom:1px solid var(--dim);color:var(--fg);transition:border-color 120ms linear, color 120ms linear}
   .why-body a:hover{color:var(--amber);border-bottom-color:var(--amber)}
   .why-body code{font-family:var(--mono-display);color:var(--dim);font-size:13px}
   .pullquote{
-    grid-column:9 / 13;
+    grid-column:2;
     font-family:var(--serif);font-style:italic;font-size:28px;line-height:1.3;color:var(--dim);
-    padding-top:4px;max-width:20ch;letter-spacing:-0.01em;
+    padding-top:28px;max-width:20ch;letter-spacing:-0.01em;
   }
   @media (max-width:900px){
-    .why-body,.pullquote{grid-column:1/-1}
     .pullquote{font-size:22px;margin-top:24px}
   }
 
   /* How */
-  .how-steps{grid-column:2 / 13;display:grid;grid-template-columns:repeat(3,1fr);gap:40px;margin-bottom:56px}
+  .how-steps{grid-column:2;display:grid;grid-template-columns:repeat(3,1fr);gap:40px;margin-bottom:56px}
   @media (max-width:900px){ .how-steps{grid-template-columns:1fr;gap:28px} }
   .step .num{font-family:var(--mono-display);font-size:48px;color:var(--hair);line-height:1;letter-spacing:-0.04em;font-weight:300}
   .step .num b{color:var(--dim);font-weight:300}
@@ -201,7 +219,7 @@
   .step p{color:var(--dim);font-size:13px;line-height:1.6;max-width:30ch}
 
   .code{
-    grid-column:2 / 11;
+    grid-column:2;
     position:relative;
     border:1px solid var(--hair);
     font-family:var(--mono-display);font-size:12px;line-height:1.7;
@@ -223,20 +241,16 @@
     font-family:var(--mono-display);font-size:11px;
   }
   .code .copy:hover{color:var(--amber)}
-  @media (max-width:900px){ .code{grid-column:1/-1} }
-
   /* Install */
-  .install-body{grid-column:2 / 11;display:flex;flex-direction:column;gap:20px}
+  .install-body{grid-column:2;display:flex;flex-direction:column;gap:20px;max-width:860px}
   .install-note{
-    grid-column:2 / 10;margin-top:20px;
+    grid-column:2;margin-top:20px;
     color:var(--dim);font-size:13px;max-width:60ch;
   }
   .install-note code{font-family:var(--mono-display);color:var(--fg);background:transparent;padding:0 2px;border-bottom:1px dashed var(--hair)}
-  @media (max-width:900px){ .install-body,.install-note{grid-column:1/-1} }
-
   /* API */
   .api-table{
-    grid-column:2 / 12;
+    grid-column:2;
     font-family:var(--mono-display);font-size:13px;border-top:1px solid var(--hair);
   }
   .api-row{
@@ -249,19 +263,16 @@
   .api-row .path{color:var(--fg)}
   .api-row .purpose{color:var(--dim);font-family:var(--mono-body);font-size:13px}
   @media (max-width:900px){
-    .api-table{grid-column:1/-1}
     .api-row{grid-template-columns:70px 1fr;gap:12px}
     .api-row .purpose{grid-column:1/-1;color:var(--dim);font-size:12px;margin-top:4px}
   }
 
   /* Maintained */
   .maint{
-    grid-column:2 / 8;max-width:420px;
+    grid-column:2;max-width:500px;
   }
   .maint p{color:var(--fg);font-size:14px;line-height:1.7}
   .maint .agent{color:var(--amber)}
-  @media (max-width:900px){ .maint{grid-column:1/-1} }
-
   /* Footer */
   footer{
     grid-column:1/-1;display:flex;justify-content:space-between;align-items:center;
@@ -274,6 +285,30 @@
   .dim{color:var(--dim)}
   .fg{color:var(--fg)}
   .amber{color:var(--amber)}
+
+  @media (max-width:768px){
+    .hero-sub,.why-body p,.step p,.install-note,.maint p{
+      overflow-wrap:anywhere;
+    }
+    .meta .row{
+      display:grid;
+      grid-template-columns:88px minmax(0,1fr);
+      align-items:start;
+    }
+    .meta .v{
+      max-width:none;
+      font-size:10px;
+      text-align:right;
+    }
+    .code{
+      overflow:hidden;
+    }
+    .code pre{
+      white-space:pre-wrap;
+      overflow-wrap:anywhere;
+      overflow-x:hidden;
+    }
+  }
 </style>
 </head>
 <body>
@@ -297,12 +332,12 @@
   <div class="hero" data-section="hero" data-label="00 · hero">
     <div class="ascii" id="ascii"></div>
     <h1 class="hero-h" id="hero-h">
-      <span class="line" data-d="0">Scrape x.com</span>
-      <span class="line" data-d="1">using your own</span>
-      <span class="line" data-d="2">browser.</span>
+      <span class="line" data-d="0">Capture X</span>
+      <span class="line" data-d="1">data through</span>
+      <span class="line" data-d="2">your browser.</span>
     </h1>
     <p class="hero-sub" id="hero-sub">
-      A local service wakes a logged-in Chrome tab, injects a bridge script through CDP, captures X's own GraphQL responses, and exposes them over localhost. <span class="muted">No reverse-engineered auth, no API keys.</span>
+      Search X and fetch data through your logged-in Chrome tab. Localhost API, no copied cookies, no API keys.
     </p>
     <div class="hero-actions" id="hero-actions">
       <a class="btn primary link-bracket" href="#install">[ install service ]</a>
@@ -311,18 +346,30 @@
   </div>
 
   <aside class="meta" id="meta">
-    <div class="row"><span class="k">license</span><span class="v" data-meta="license">Apache-2.0</span></div>
-    <div class="row"><span class="k">commit</span><span class="v" data-meta="commit">&mdash;</span></div>
-    <div class="row"><span class="k">updated</span><span class="v" data-meta="updated">&mdash;</span></div>
-    <div class="row"><span class="k">runtime</span><span class="v">python 3.11+</span></div>
-    <div class="row"><span class="k">host</span><span class="v">127.0.0.1:19816</span></div>
+    <div class="sample" aria-label="response preview">
+      <div class="top"><span>GET /search</span><span>200</span></div>
+      <pre>[
+  {
+    <span class="out">"user"</span>: <b>"@bug_finderrr"</b>,
+    <span class="out">"text"</span>: "The planner now...",
+    <span class="out">"replies"</span>: 8,
+    <span class="out">"url"</span>: "x.com/i/status/..."
+  }
+]</pre>
+    </div>
+    <div class="meta-grid">
+      <div class="row"><span class="k">license</span><span class="v" data-meta="license">Apache-2.0</span></div>
+      <div class="row"><span class="k">commit</span><span class="v" data-meta="commit">&mdash;</span></div>
+      <div class="row"><span class="k">updated</span><span class="v" data-meta="updated">&mdash;</span></div>
+      <div class="row"><span class="k">host</span><span class="v">127.0.0.1:19816</span></div>
+    </div>
   </aside>
 
   <!-- WHY -->
   <section id="why" data-section="why" data-label="01 · why">
     <div class="section-label">&sect; 01</div>
     <div class="why-body">
-      <h2 style="font-family:var(--mono-display);font-size:18px;font-weight:500;letter-spacing:-0.01em;margin-bottom:22px">Why this exists</h2>
+      <h2 class="section-title">Why this exists</h2>
       <p>
         In March 2026, x.com stopped shipping the <code>ondemand.s.&lt;hash&gt;.js</code> file that most
         <a href="https://github.com/d60/twikit" target="_blank" rel="noopener">Python-side</a> <a href="https://github.com/vladkens/twscrape" target="_blank" rel="noopener">X scrapers</a> <a href="https://github.com/mahrtayyab/tweety" target="_blank" rel="noopener">parsed</a> to generate the client transaction id required for authenticated GraphQL calls.
@@ -342,15 +389,15 @@
   <!-- HOW -->
   <section id="how" data-section="how" data-label="02 · how">
     <div class="section-label">&sect; 02</div>
-    <div style="grid-column:2 / 13">
-      <h2 style="font-family:var(--mono-display);font-size:18px;font-weight:500;letter-spacing:-0.01em;margin-bottom:40px">How it works</h2>
+    <div class="section-head">
+      <h2 class="section-title">How it works</h2>
     </div>
 
     <div class="how-steps">
       <div class="step">
         <div class="num"><b>01</b></div>
-        <h3>You open a pinned tab.</h3>
-        <p>A dedicated Chrome profile logs into x.com. The service opens <span class="fg">/home?bridge=1</span> only when needed.</p>
+        <h3>You keep a bridge tab.</h3>
+        <p>Use the Chrome session signed into X and keep <span class="fg">/home?bridge=1</span> open there.</p>
       </div>
       <div class="step">
         <div class="num"><b>02</b></div>
@@ -359,49 +406,50 @@
       </div>
       <div class="step">
         <div class="num"><b>03</b></div>
-        <h3>Python reads from localhost.</h3>
-        <p>When you hit <span class="fg">/search</span>, the bridge navigates the tab, waits for X to fetch data, and returns parsed tweets.</p>
+        <h3>Python returns the parsed data.</h3>
+        <p>When you call <span class="fg">/search</span> or <span class="fg">/replies/{id}</span>, the bridge drives the tab, waits for captured responses, and returns normalized tweet objects.</p>
       </div>
     </div>
 
-    <div class="code" style="grid-column:2 / 11">
+    <div class="code">
       <div class="head">
         <span>$ terminal</span>
         <span class="copy" data-copy="curl -s 'http://127.0.0.1:19816/search?q=postgres&count=20' | jq .">[ copy ]</span>
       </div>
-<pre><span class="c">$</span> curl -s <span class="s">'http://127.0.0.1:19816/search?q=postgres&count=20'</span> | jq .
-{
-  <span class="s">"query"</span>: <span class="s">"postgres"</span>,
-  <span class="s">"count"</span>: 20,
-  <span class="s">"results"</span>: [
-    {
-      <span class="s">"id"</span>: <span class="s">"1781..."</span>,
-      <span class="s">"author"</span>: <span class="s">"@rhaas"</span>,
-      <span class="s">"text"</span>: <span class="s">"The planner now folds SRFs in the target list when..."</span>,
-      <span class="s">"created_at"</span>: <span class="s">"2026-04-17T09:12:04Z"</span>,
-      <span class="s">"metrics"</span>: { <span class="s">"likes"</span>: 142, <span class="s">"replies"</span>: 8, <span class="s">"retweets"</span>: 31 }
-    },
-    <span class="c">...</span>
-  ],
-  <span class="s">"cursor"</span>: <span class="s">"DAABCgABGZ..."</span>,
-  <span class="s">"captured_at"</span>: <span class="s">"2026-04-18T22:04:11Z"</span>
-}</pre>
+<pre><span class="c">$</span> curl -s <span class="s">'http://127.0.0.1:19816/search?q=postgres&count=2'</span> | jq .
+[
+  {
+    <span class="s">"id"</span>: <span class="s">"1781..."</span>,
+    <span class="s">"text"</span>: <span class="s">"The planner now folds SRFs in the target list when..."</span>,
+    <span class="s">"created_at"</span>: <span class="s">"Fri Apr 17 09:12:04 +0000 2026"</span>,
+    <span class="s">"user"</span>: { <span class="s">"screen_name"</span>: <span class="s">"bug_finderrr"</span>, <span class="s">"name"</span>: <span class="s">"Sudharsan"</span> },
+    <span class="s">"favorite_count"</span>: 142,
+    <span class="s">"reply_count"</span>: 8,
+    <span class="s">"retweet_count"</span>: 31,
+    <span class="s">"url"</span>: <span class="s">"&lt;x_status_url&gt;"</span>
+  }
+]</pre>
     </div>
   </section>
 
   <!-- INSTALL -->
   <section id="install" data-section="install" data-label="03 · install">
     <div class="section-label">&sect; 03</div>
-    <div style="grid-column:2 / 13">
-      <h2 style="font-family:var(--mono-display);font-size:18px;font-weight:500;letter-spacing:-0.01em;margin-bottom:28px">Install</h2>
+    <div class="section-head">
+      <h2 class="section-title">Install</h2>
     </div>
 
     <div class="install-body">
 
       <div class="code">
         <div class="head">
-          <span>$ service</span>
-          <span class="copy" data-copy="git clone https://github.com/Bug-Finderr/x-bridge">[ copy ]</span>
+          <span>$ install</span>
+          <span class="copy" data-copy="git clone https://github.com/Bug-Finderr/x-bridge
+cd x-bridge/service
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python main.py">[ copy ]</span>
         </div>
 <pre><span class="c">$</span> git clone https://github.com/Bug-Finderr/x-bridge
 <span class="c">$</span> cd x-bridge/service
@@ -412,31 +460,26 @@
 
       <div class="code">
         <div class="head">
-          <span>$ bridge</span>
-          <span class="copy" data-copy="git clone https://github.com/Bug-Finderr/x-bridge
-cd x-bridge/service
-pip install -r requirements.txt
-python main.py">[ copy ]</span>
+          <span>$ browser tab</span>
+          <span class="copy" data-copy="https://x.com/home?bridge=1">[ copy ]</span>
         </div>
-<pre><span class="c">$</span> git clone https://github.com/Bug-Finderr/x-bridge
-<span class="c">$</span> cd x-bridge/service
-<span class="c">$</span> pip install -r requirements.txt
-<span class="c">$</span> python main.py
-<span class="c"># bridge listening on 127.0.0.1:19816</span></pre>
+<pre><span class="c">#</span> Start Chrome with remote debugging on 127.0.0.1:18800.
+<span class="c">#</span> Sign into X, then open:
+https://x.com/home?bridge=1</pre>
       </div>
 
     </div>
 
     <p class="install-note">
-      Requires Chrome signed into x.com with remote debugging on <code>127.0.0.1:18800</code>. With <code>XBRIDGE_START_SCRIPT</code>, the service opens and closes the dedicated profile on demand.
+      Optional: set <code>XBRIDGE_START_SCRIPT</code> if the service should run your browser launcher before bridge checks.
     </p>
   </section>
 
   <!-- API -->
   <section id="api" data-section="api" data-label="04 · api">
     <div class="section-label">&sect; 04</div>
-    <div style="grid-column:2 / 13">
-      <h2 style="font-family:var(--mono-display);font-size:18px;font-weight:500;letter-spacing:-0.01em;margin-bottom:28px">API</h2>
+    <div class="section-head">
+      <h2 class="section-title">API</h2>
     </div>
 
     <div class="api-table">
@@ -445,8 +488,13 @@ python main.py">[ copy ]</span>
       </div>
       <div class="api-row">
         <span class="method">GET</span>
+        <span class="path">/health</span>
+        <span class="purpose">Basic service liveness check.</span>
+      </div>
+      <div class="api-row">
+        <span class="method">GET</span>
         <span class="path">/search</span>
-        <span class="purpose">Run a keyword query, return captured tweets.</span>
+        <span class="purpose">Run a Top or Latest search and return parsed tweet objects.</span>
       </div>
       <div class="api-row">
         <span class="method">GET</span>
@@ -456,7 +504,7 @@ python main.py">[ copy ]</span>
       <div class="api-row">
         <span class="method">GET</span>
         <span class="path">/queries</span>
-        <span class="purpose">List queries the tab is currently driving.</span>
+        <span class="purpose">Internal. Bridge tab polls for pending jobs.</span>
       </div>
       <div class="api-row">
         <span class="method post">POST</span>
@@ -471,7 +519,12 @@ python main.py">[ copy ]</span>
       <div class="api-row">
         <span class="method">GET</span>
         <span class="path">/debug/recent</span>
-        <span class="purpose">Last 50 captured payloads, newest first.</span>
+        <span class="purpose">Recent captured payloads for parser/debug inspection.</span>
+      </div>
+      <div class="api-row">
+        <span class="method">GET</span>
+        <span class="path">/debug/bridge</span>
+        <span class="purpose">Current bridge readiness, polling, pending jobs, and idle state.</span>
       </div>
     </div>
   </section>
@@ -480,9 +533,9 @@ python main.py">[ copy ]</span>
   <section id="maintained" data-section="maintained" data-label="05 · maintained">
     <div class="section-label">&sect; 05</div>
     <div class="maint">
-      <h2 style="font-family:var(--mono-display);font-size:18px;font-weight:500;letter-spacing:-0.01em;margin-bottom:22px">Maintained by an agent</h2>
+      <h2 class="section-title">Maintained by an agent</h2>
       <p>
-        This repo is autopatched by an <span class="agent">OpenClaw</span> agent when x.com drifts. Patch versions (0.3.x) are machine-authored; minor and major bumps stay human.
+        This repo is autopatched by an <span class="agent">OpenClaw</span> agent when x.com drifts. Patch versions are machine-authored parser fixes; minor and major bumps stay human.
       </p>
     </div>
   </section>
@@ -592,10 +645,9 @@ python main.py">[ copy ]</span>
       if (el && v) el.textContent = v;
     };
     try {
-      const [repoRes, commitRes, usRes] = await Promise.all([
+      const [repoRes, commitRes] = await Promise.all([
         fetch("https://api.github.com/repos/Bug-Finderr/x-bridge"),
         fetch("https://api.github.com/repos/Bug-Finderr/x-bridge/commits?per_page=1"),
-        fetch("git clone https://github.com/Bug-Finderr/x-bridge"),
       ]);
       if (repoRes.ok){
         const r = await repoRes.json();
