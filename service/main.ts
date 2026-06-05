@@ -14,7 +14,7 @@ import {
 
 const HOST = process.env.XBRIDGE_HOST || "127.0.0.1";
 const PORT = Number(process.env.XBRIDGE_PORT || 19816);
-const JOB_TIMEOUT = Number(process.env.XBRIDGE_JOB_TIMEOUT || 120);
+const JOB_TIMEOUT = Number(process.env.XBRIDGE_JOB_TIMEOUT || 300);
 const BODY_LIMIT = Number(process.env.XBRIDGE_BODY_LIMIT || 50 * 1024 * 1024);
 type SearchType = "Top" | "Latest";
 
