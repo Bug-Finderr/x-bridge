@@ -69,7 +69,7 @@ const IDLE_STOP_AFTER = numberEnv("XBRIDGE_IDLE_SECONDS", 600);
 const IDLE_CHECK_INTERVAL = numberEnv("XBRIDGE_IDLE_CHECK_SECONDS", 60);
 const WAKE_TIMEOUT = numberEnv("XBRIDGE_WAKE_TIMEOUT", 240);
 const CDP_TIMEOUT = numberEnv("XBRIDGE_CDP_TIMEOUT", 8);
-const POLL_READY_TIMEOUT = numberEnv("XBRIDGE_POLL_READY_TIMEOUT", 150);
+const POLL_READY_TIMEOUT = numberEnv("XBRIDGE_POLL_READY_TIMEOUT", 300);
 const ABORT_GRACE_SECONDS = numberEnv("XBRIDGE_ABORT_GRACE_SECONDS", 20);
 const BRIDGE_READY_SECONDS = numberEnv("XBRIDGE_BRIDGE_READY_SECONDS", 15);
 const EXTRA_PATH = process.env.XBRIDGE_EXTRA_PATH || "";
@@ -423,7 +423,7 @@ function bridgeRecentlyPolled(): boolean {
 async function waitForPollAfter(startedAt: number, timeout: number): Promise<boolean> {
   const deadline = Date.now() / 1000 + timeout;
   while (Date.now() / 1000 < deadline) {
-    if (lastPollAt > startedAt || bridgeRecentlyPolled()) return true;
+    if (lastPollAt > startedAt) return true;
     await sleep(1000);
   }
   return false;
@@ -459,14 +459,14 @@ function tail(text: string): string {
 
 export async function ensureBrowserReady(reason = "bridge request"): Promise<void> {
   markDemand();
-  if (bridgeRecentlyPolled()) return;
+  if (bridgeRecentlyPolled() && await bridgeTabOpen()) return;
   if (wakePromise) return await wakePromise;
   wakePromise = ensureBrowserReadyInner(reason).finally(() => { wakePromise = null; });
   return await wakePromise;
 }
 
 async function ensureBrowserReadyInner(reason: string): Promise<void> {
-  if (bridgeRecentlyPolled()) return;
+  if (bridgeRecentlyPolled() && await bridgeTabOpen()) return;
   const [critical, powerDetail] = criticalBatteryWithoutAc();
   if (critical) throw new Error(`x-bridge browser launch blocked: critical power state (${powerDetail})`);
 
