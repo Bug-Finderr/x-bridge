@@ -73,6 +73,7 @@ const POLL_READY_TIMEOUT = numberEnv("XBRIDGE_POLL_READY_TIMEOUT", 300);
 const ABORT_GRACE_SECONDS = numberEnv("XBRIDGE_ABORT_GRACE_SECONDS", 20);
 const BRIDGE_READY_SECONDS = numberEnv("XBRIDGE_BRIDGE_READY_SECONDS", 15);
 const EXTRA_PATH = process.env.XBRIDGE_EXTRA_PATH || "";
+const BRIDGE_HOME_URL = process.env.XBRIDGE_HOME_URL || "https://x.com/home?bridge=1";
 const POWER_GUARD = process.env.XBRIDGE_POWER_GUARD === "1";
 const POWER_AC_DEVICE = process.env.XBRIDGE_POWER_AC_DEVICE || "AC";
 const POWER_BATTERY_DEVICE = process.env.XBRIDGE_POWER_BATTERY_DEVICE || "BAT0";
@@ -339,6 +340,23 @@ async function injectBridgeScript(): Promise<boolean> {
   return injected;
 }
 
+async function navigateBridgeTabsHome(): Promise<boolean> {
+  let navigated = false;
+  for (const tab of await bridgeTabs()) {
+    if (!tab.webSocketDebuggerUrl) continue;
+    try {
+      await withWebSocket(tab.webSocketDebuggerUrl, async (ws) => {
+        await cdpCommand(ws, 1, "Page.enable");
+        await cdpCommand(ws, 2, "Page.navigate", { url: BRIDGE_HOME_URL });
+      });
+      navigated = true;
+    } catch (error) {
+      log.warn("failed to navigate x-bridge tab home", tab.url, messageOf(error));
+    }
+  }
+  return navigated;
+}
+
 function readPowerSupplyValue(device: string, key: string): string {
   try {
     return readFileSync(`/sys/class/power_supply/${device}/${key}`, "utf8").trim();
@@ -476,6 +494,13 @@ async function ensureBrowserReadyInner(reason: string): Promise<void> {
     if (await waitForPollAfter(pollStartedAt, Math.min(POLL_READY_TIMEOUT, 30))) {
       log.info("x-bridge browser ready");
       return;
+    }
+    if (await navigateBridgeTabsHome()) {
+      await injectBridgeScript();
+      if (await waitForPollAfter(pollStartedAt, Math.min(POLL_READY_TIMEOUT, 60))) {
+        log.info("x-bridge browser ready after bridge tab reset");
+        return;
+      }
     }
   }
 
