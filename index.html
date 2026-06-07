@@ -378,7 +378,7 @@
         The libraries aren't abandoned and the authors aren't at fault. The token-derivation pipeline they depended on no longer exists in the wire protocol. Reproducing it server-side means emulating a moving target.
       </p>
       <p>
-        x-bridge takes the other path. If the real browser already has the token, let the real browser do the request. A CDP-injected bridge script listens to the fetches x.com is making anyway, forwards their responses to a local Python service, and exits the auth-replication arms race entirely.
+        x-bridge takes the other path. If the real browser already has the token, let the real browser do the request. A CDP-injected bridge script listens to the fetches x.com is making anyway, forwards their responses to a local Node service, and exits the auth-replication arms race entirely.
       </p>
     </div>
     <div class="pullquote">
@@ -406,7 +406,7 @@
       </div>
       <div class="step">
         <div class="num"><b>03</b></div>
-        <h3>Python returns the parsed data.</h3>
+        <h3>Service returns the parsed data.</h3>
         <p>When you call <span class="fg">/search</span> or <span class="fg">/replies/{id}</span>, the bridge drives the tab, waits for captured responses, and returns normalized tweet objects.</p>
       </div>
     </div>
@@ -446,11 +446,11 @@
           <span>$ install</span>
           <span class="copy" data-copy="git clone https://github.com/Bug-Finderr/x-bridge
 cd x-bridge/service
-node main.ts">[ copy ]</span>
+npm start">[ copy ]</span>
         </div>
 <pre><span class="c">$</span> git clone https://github.com/Bug-Finderr/x-bridge
 <span class="c">$</span> cd x-bridge/service
-<span class="c">$</span> node main.ts</pre>
+<span class="c">$</span> npm start</pre>
       </div>
 
       <div class="code">

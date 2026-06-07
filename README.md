@@ -16,7 +16,7 @@ It uses a logged-in Chrome tab, injects a capture script through CDP, and parses
 ```bash
 git clone https://github.com/Bug-Finderr/x-bridge
 cd x-bridge/service
-node main.ts
+npm start
 ```
 
 Start Chrome with remote debugging on `127.0.0.1:18800`, sign into X, then open:
@@ -42,7 +42,7 @@ XBRIDGE_IDLE_SECONDS=600
 
 `XBRIDGE_BROWSER_PROFILE_DIR` is only for managed browser cleanup. It is not required for manual Chrome sessions.
 
-The service is native Node TypeScript. Keep source syntax erasable so Node can run `main.ts` directly without a build step.
+The service is native Node TypeScript.
 
 ## API
 
