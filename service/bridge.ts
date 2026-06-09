@@ -263,6 +263,25 @@ function isBridgeTab(tab: CDPTab): boolean {
   }
 }
 
+async function cdpAvailable(): Promise<boolean> {
+  try {
+    await cdpJson("/json/version");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function openBridgeTabViaCdp(): Promise<boolean> {
+  try {
+    await cdpFetch(`/json/new?${encodeURIComponent(BRIDGE_HOME_URL)}`, Math.max(CDP_TIMEOUT, 10));
+    return true;
+  } catch (error) {
+    log.warn("failed to open x-bridge tab via CDP", messageOf(error));
+    return false;
+  }
+}
+
 export async function bridgeTabOpen(): Promise<boolean> {
   return (await bridgeTabs()).length > 0;
 }
@@ -488,6 +507,15 @@ async function ensureBrowserReadyInner(reason: string): Promise<void> {
   const [critical, powerDetail] = criticalBatteryWithoutAc();
   if (critical) throw new Error(`x-bridge browser launch blocked: critical power state (${powerDetail})`);
 
+  if (!(await bridgeTabOpen()) && await browserRunning() && await cdpAvailable()) {
+    log.warn("x-bridge browser is running without a bridge tab; opening one via CDP");
+    await openBridgeTabViaCdp();
+    for (let i = 0; i < 10; i += 1) {
+      if (await bridgeTabOpen()) break;
+      await sleep(1000);
+    }
+  }
+
   if (await bridgeTabOpen()) {
     const pollStartedAt = lastPollAt;
     await injectBridgeScript();
@@ -529,6 +557,21 @@ async function ensureBrowserReadyInner(reason: string): Promise<void> {
     log.info("x-bridge browser ready");
     return;
   }
+  log.warn("x-bridge page did not poll after launch; restarting bridge browser once");
+  stopBrowser();
+  await sleep(5000);
+  const retryPollStartedAt = lastPollAt;
+  const retryOutput = await runStartScript();
+  for (let i = 0; i < 30; i += 1) {
+    if (await bridgeTabOpen()) break;
+    await sleep(2000);
+  }
+  if (!(await bridgeTabOpen())) throw new Error(`x-bridge tab did not become visible after restart: ${tail(retryOutput)}`);
+  await injectBridgeScript();
+  if (await waitForPollAfter(retryPollStartedAt, Math.min(POLL_READY_TIMEOUT, 180))) {
+    log.info("x-bridge browser ready after restart");
+    return;
+  }
   throw new Error(`x-bridge page did not poll /queries within ${Math.trunc(POLL_READY_TIMEOUT)}s`);
 }
 
@@ -560,6 +603,7 @@ export function startIdleReaper(): ReturnType<typeof setInterval> | null {
   }
   const timer = setInterval(async () => {
     try {
+      if (wakePromise) return;
       if (await pendingCount() > 0) return;
       if (Date.now() / 1000 - lastDemandAt < IDLE_STOP_AFTER) return;
       if (!(await browserRunning())) return;
