@@ -90,6 +90,8 @@ const PAGE_BRIDGE_SCRIPT = String.raw`
   const CAPTURE_OPS = ['SearchTimeline', 'UserTweets', 'UserTweetsAndReplies', 'HomeTimeline', 'HomeLatestTimeline', 'TweetDetail'];
   const POLL_MS = 5000;
   const WATCHDOG_MS = 75000;
+  const API_TIMEOUT_MS = 10000;
+  const POLLER_VERSION = 2;
 
   const params = new URLSearchParams(location.search);
   const bridgeOn = params.has('bridge');
@@ -109,11 +111,15 @@ const PAGE_BRIDGE_SCRIPT = String.raw`
   }).catch(() => null);
 
   const apiGet = async (path) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
     try {
-      const r = await fetch(LOCAL + path);
+      const r = await fetch(LOCAL + path, { signal: controller.signal });
       return await r.json();
     } catch (_) {
       return null;
+    } finally {
+      clearTimeout(timer);
     }
   };
 
@@ -162,8 +168,17 @@ const PAGE_BRIDGE_SCRIPT = String.raw`
   }
 
   if (!IS_BRIDGE) return;
-  if (window.__xBridgePollerInstalled) return;
+  if (window.__xBridgePollTimer) {
+    clearTimeout(window.__xBridgePollTimer);
+    window.__xBridgePollTimer = null;
+  }
+  if (window.__xBridgePollInterval) {
+    clearInterval(window.__xBridgePollInterval);
+    window.__xBridgePollInterval = null;
+  }
+  if (window.__xBridgePollerInstalled && window.__xBridgePollerVersion === POLLER_VERSION && window.__xBridgeLastPollAttempt && Date.now() - window.__xBridgeLastPollAttempt < POLL_MS * 2) return;
   window.__xBridgePollerInstalled = true;
+  window.__xBridgePollerVersion = POLLER_VERSION;
   console.log('[x-bridge] bridge mode, jobid=', JOBID);
 
   if (JOBID) {
@@ -186,8 +201,9 @@ const PAGE_BRIDGE_SCRIPT = String.raw`
       }
     }, 2000);
   } else {
-    setTimeout(function tick() {
-      apiGet('/queries').then((j) => {
+    const tick = async () => {
+      window.__xBridgeLastPollAttempt = Date.now();
+      const j = await apiGet('/queries');
         if (j && Array.isArray(j.queue) && j.queue.length) {
           const job = j.queue[0];
           let target;
@@ -203,9 +219,14 @@ const PAGE_BRIDGE_SCRIPT = String.raw`
           location.href = target;
           return;
         }
-        setTimeout(tick, POLL_MS);
-      });
-    }, 1500);
+      window.__xBridgePollTimer = setTimeout(tick, POLL_MS);
+    };
+    window.__xBridgePollInterval = setInterval(() => {
+      if (!window.__xBridgeLastPollAttempt || Date.now() - window.__xBridgeLastPollAttempt > POLL_MS * 3) {
+        tick();
+      }
+    }, POLL_MS * 2);
+    window.__xBridgePollTimer = setTimeout(tick, 1500);
   }
 })();
 `;
